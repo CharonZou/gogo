@@ -1,4 +1,4 @@
-# 下载与安装
+﻿# 下载与安装
 
 > **想开始用？按你的情况选一种方式**：
 >
@@ -9,7 +9,7 @@
 
 ## 桌面客户端
 
-**桌面客户端** 的安装包与 RocheFlow 本体一并发布在 **[ChangRenZou/RocheFlow Releases](https://github.com/ChangRenZou/RocheFlow/releases)**。
+**桌面客户端** 的安装包与 RocheFlow 本体一并发布在 **[CharonZou/RocheFlow Releases](https://github.com/CharonZou/RocheFlow/releases)**。
 
 ### 下载哪个文件？
 

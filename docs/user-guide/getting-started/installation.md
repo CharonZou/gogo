@@ -1,4 +1,4 @@
-# 安装指南
+﻿# 安装指南
 
 > **安装 RocheFlow 有两种方式，选一种就行**：
 >
@@ -20,7 +20,7 @@
 
 ## 方式一：桌面客户端（推荐）
 
-1. 打开 [RocheFlow Releases](https://github.com/ChangRenZou/RocheFlow/releases)
+1. 打开 [RocheFlow Releases](https://github.com/CharonZou/RocheFlow/releases)
 2. 下载对应平台的最新安装包（`.exe` / `.dmg` / `.AppImage`）
 3. 安装后启动，在「设置 → 模型」配置一个对话模型即可开始使用
 
@@ -55,7 +55,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 #### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/ChangRenZou/RocheFlow.git
+git clone https://github.com/CharonZou/RocheFlow.git
 cd RocheFlow
 ```
 

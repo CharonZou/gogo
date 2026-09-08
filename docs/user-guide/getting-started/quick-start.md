@@ -1,4 +1,4 @@
-# 5分钟快速上手
+﻿# 5分钟快速上手
 
 > **5 分钟你能完成这些**：
 >
@@ -10,7 +10,7 @@
 
 ---
 ## 1. 安装
-[Releases 页](https://github.com/ChangRenZou/RocheFlow/releases) 下载对应系统安装包直接安装即可。
+[Releases 页](https://github.com/CharonZou/RocheFlow/releases) 下载对应系统安装包直接安装即可。
 
 > **下载哪个文件？** 在 Releases 页找到最新版本，展开 Assets 列表：
 > - Windows：`RocheFlow_Setup_x.x.x_x64.exe`

@@ -1,4 +1,4 @@
-# 预设角色与团队
+﻿# 预设角色与团队
 
 > **比如你可以这样用预设角色**：
 >
@@ -155,7 +155,7 @@ RocheFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent �
 每个角色的工具与技能白名单按职责精细授权。
 ```
 
-主智能体会按 [preset-role-assistant 技能](https://github.com/ChangRenZou/RocheFlow/blob/main/skills/public/preset-role-assistant/SKILL.md) 的流程：
+主智能体会按 [preset-role-assistant 技能](https://github.com/CharonZou/RocheFlow/blob/main/skills/public/preset-role-assistant/SKILL.md) 的流程：
 
 1. 澄清每个角色的职责、典型任务、绝对不做的事
 2. 检查 `agent_code` 不冲突（`rocheflow agents check` / `platform agents.list`）
@@ -170,7 +170,7 @@ RocheFlow 把预设角色按职责聚合成四个 Agent Teams，进入「Agent �
 ## 八、常见问题
 
 **Q：预设角色里看不到 `project-*` 系列？**
-检查 Agent 管理页面是否按团队分类筛选；再用 `rocheflow agents list` 确认库里是否已有。内置 `project-*` 会在 Gateway / 主对话启动时自动物化（`ensure_builtin_agents_materialized`），**没有** `rocheflow agents seed` 命令。若列表仍空：重启 Gateway 并开一轮新对话；仍缺失则升级/重装 RocheFlow，或用 [rocheflow-admin](https://github.com/ChangRenZou/RocheFlow/blob/main/skills/public/rocheflow-admin/SKILL.md) / [preset-role-assistant](https://github.com/ChangRenZou/RocheFlow/blob/main/skills/public/preset-role-assistant/SKILL.md) 按需重建自定义角色。
+检查 Agent 管理页面是否按团队分类筛选；再用 `rocheflow agents list` 确认库里是否已有。内置 `project-*` 会在 Gateway / 主对话启动时自动物化（`ensure_builtin_agents_materialized`），**没有** `rocheflow agents seed` 命令。若列表仍空：重启 Gateway 并开一轮新对话；仍缺失则升级/重装 RocheFlow，或用 [rocheflow-admin](https://github.com/CharonZou/RocheFlow/blob/main/skills/public/rocheflow-admin/SKILL.md) / [preset-role-assistant](https://github.com/CharonZou/RocheFlow/blob/main/skills/public/preset-role-assistant/SKILL.md) 按需重建自定义角色。
 
 **Q：项目团队 6 个角色一定要全用吗？**
 不需要。你完全可以只用 `project-software-developer` 写代码，跳过方案 / 审查等阶段。整团队调度只在 Plan 模式 / 任务中心**显式指定时**才走全流程。

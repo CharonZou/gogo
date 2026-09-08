@@ -1,4 +1,4 @@
-# RocheFlow 项目介绍
+﻿# RocheFlow 项目介绍
 
 > **比如你可以用 RocheFlow 做这些事**：
 >
@@ -146,7 +146,7 @@ RocheFlow 由四层组成，从上到下依次是：
 
 ### 许可证
 
-本项目以 [RocheFlow 非商业许可证 1.0](https://github.com/ChangRenZou/RocheFlow/blob/main/LICENSE) 发布：**允许学习与非商业使用；商业使用须书面授权**。
+本项目以 [RocheFlow 非商业许可证 1.0](https://github.com/CharonZou/RocheFlow/blob/main/LICENSE) 发布：**允许学习与非商业使用；商业使用须书面授权**。
 
 ## 8. 系统要求
 
@@ -156,7 +156,7 @@ RocheFlow 由四层组成，从上到下依次是：
 | 网络 | 可访问所选 LLM 服务商 API；IM 渠道需能访问对应平台 |
 | 密钥 | 至少一个模型提供商 API Key |
 
-获取桌面安装包：[GitHub Releases](https://github.com/ChangRenZou/RocheFlow/releases)。
+获取桌面安装包：[GitHub Releases](https://github.com/CharonZou/RocheFlow/releases)。
 
 ## 9. 下一步
 
@@ -171,7 +171,7 @@ RocheFlow 由四层组成，从上到下依次是：
 
 | 渠道 | 说明 |
 |------|------|
-| [GitHub Issues](https://github.com/ChangRenZou/RocheFlow/issues) | Bug 反馈、功能建议 |
+| [GitHub Issues](https://github.com/CharonZou/RocheFlow/issues) | Bug 反馈、功能建议 |
 
 ---
 

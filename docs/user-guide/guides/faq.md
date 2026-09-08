@@ -1,4 +1,4 @@
-# 常见问题与排查指南
+﻿# 常见问题与排查指南
 
 > **遇到问题别慌，先看看是不是这些常见情况**：
 >
@@ -7,7 +7,7 @@
 > - **工具调用失败**：AI 说"文件写不了"——检查工作空间是否开启了
 > - **自动化没跑**：检查 cron 表达式写对了没，推送渠道配好了没
 >
-> 如果这里没找到你遇到的问题，去 [GitHub Issues](https://github.com/ChangRenZou/RocheFlow/issues) 搜搜看。
+> 如果这里没找到你遇到的问题，去 [GitHub Issues](https://github.com/CharonZou/RocheFlow/issues) 搜搜看。
 
 ---
 
