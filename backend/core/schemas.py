@@ -31,8 +31,9 @@ class AgentCreate(BaseModel):
     soul: str = Field(default="", description="SOUL 人设（prompt 种子）")
     model: str | None = Field(default=None, description="模型，缺省用全局配置")
     tool_whitelist: list[str] = Field(default_factory=list, description="工具白名单")
-    schedule_json: dict = Field(default_factory=dict, description="上班时间配置")
+    schedule_json: dict = Field(default_factory=dict, description="上班时间配置（cron: 5 字段）")
     skill_whitelist: list[str] = Field(default_factory=list, description="技能白名单")
+    auto_work: bool = Field(default=False, description="自动上班：到点值班自动接单并汇报")
 
 
 class AgentUpdate(BaseModel):
@@ -43,6 +44,7 @@ class AgentUpdate(BaseModel):
     tool_whitelist: list[str] | None = None
     schedule_json: dict | None = None
     skill_whitelist: list[str] | None = None
+    auto_work: bool | None = None
 
 
 class ChatRequest(BaseModel):

@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     automation_tick_seconds: int = 30  # 扫描间隔
     automation_max_concurrent: int = 2  # 同时执行上限
 
+    # 值班调度（P3.1，对应 ROCHEFLOW_DUTY_*）
+    duty_scheduler_enabled: bool = True  # 员工自动上班总开关
+    duty_tick_seconds: int = 30  # 扫描间隔
+
     # MCP（对应 ROCHEFLOW_MCP_*）
     mcp_enabled: bool = True  # 总开关
     mcp_connect_timeout: float = 15.0  # 连接/初始化超时（秒）

@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS agents (
   model          TEXT NOT NULL DEFAULT '',
   tool_whitelist TEXT NOT NULL DEFAULT '[]',
   schedule_json  TEXT NOT NULL DEFAULT '{}',
+  skill_whitelist TEXT NOT NULL DEFAULT '[]',
+  auto_work      INTEGER NOT NULL DEFAULT 0,
   status         TEXT NOT NULL DEFAULT 'off_duty',
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
@@ -186,6 +188,7 @@ CREATE TABLE IF NOT EXISTS skills (
 # agents 扩展列（旧库迁移用；新库直接建全）
 AGENT_EXTRA_COLUMNS = {
     "skill_whitelist": "TEXT NOT NULL DEFAULT '[]'",
+    "auto_work": "INTEGER NOT NULL DEFAULT 0",
 }
 
 # tasks 扩展列（旧库迁移用；新库直接建全）
@@ -265,14 +268,16 @@ async def insert_task(
     title: str | None = None,
     due_at: str | None = None,
     priority: str = "medium",
+    assignee_id: str | None = None,
 ) -> None:
     now = _now()
     async with aiosqlite.connect(path) as db:
         await db.execute(
             "INSERT INTO tasks "
-            "(id, goal, source, status, kind, title, due_at, priority, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)",
-            (task_id, goal, source, kind, title, due_at, priority, now, now),
+            "(id, goal, source, status, kind, title, due_at, priority, assignee_id, "
+            " created_at, updated_at) "
+            "VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?, ?)",
+            (task_id, goal, source, kind, title, due_at, priority, assignee_id, now, now),
         )
         await db.commit()
 
@@ -290,6 +295,20 @@ async def list_tasks(path: str, limit: int = 50) -> list[dict]:
         db.row_factory = aiosqlite.Row
         cur = await db.execute(
             "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+        rows = await cur.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def list_agent_tasks(path: str, agent_id: str, statuses: list[str]) -> list[dict]:
+    """员工名下指定状态的任务（值班自动接单用）。"""
+    placeholders = ", ".join("?" for _ in statuses)
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            f"SELECT * FROM tasks WHERE assignee_id = ? AND status IN ({placeholders}) "
+            "ORDER BY created_at ASC",
+            (agent_id, *statuses),
         )
         rows = await cur.fetchall()
     return [_row_to_dict(r) for r in rows]
@@ -381,6 +400,7 @@ def _agent_to_dict(row: aiosqlite.Row) -> dict:
         d["skill_whitelist"] = json.loads(d.get("skill_whitelist") or "[]")
     except json.JSONDecodeError:
         d["skill_whitelist"] = []
+    d["auto_work"] = bool(d.get("auto_work", 0))
     return d
 
 
@@ -394,14 +414,15 @@ async def insert_agent(
     tool_whitelist: list[str],
     schedule_json: dict,
     skill_whitelist: list[str] | None = None,
+    auto_work: bool = False,
 ) -> None:
     now = _now()
     async with aiosqlite.connect(path) as db:
         await db.execute(
             "INSERT INTO agents "
             "(id, name, role, soul, model, tool_whitelist, schedule_json, "
-            " skill_whitelist, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'off_duty', ?, ?)",
+            " skill_whitelist, auto_work, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'off_duty', ?, ?)",
             (
                 agent_id,
                 name,
@@ -411,6 +432,7 @@ async def insert_agent(
                 json.dumps(tool_whitelist, ensure_ascii=False),
                 json.dumps(schedule_json, ensure_ascii=False),
                 json.dumps(skill_whitelist or [], ensure_ascii=False),
+                1 if auto_work else 0,
                 now,
                 now,
             ),
@@ -445,6 +467,7 @@ async def update_agent(
     tool_whitelist: list[str] | None = None,
     schedule_json: dict | None = None,
     skill_whitelist: list[str] | None = None,
+    auto_work: bool | None = None,
 ) -> None:
     now = _now()
     sets = ["updated_at = ?"]
@@ -457,6 +480,7 @@ async def update_agent(
         ("tool_whitelist", tool_whitelist),
         ("schedule_json", schedule_json),
         ("skill_whitelist", skill_whitelist),
+        ("auto_work", None if auto_work is None else (1 if auto_work else 0)),
     ):
         if val is not None:
             sets.append(f"{col} = ?")

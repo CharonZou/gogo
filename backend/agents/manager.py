@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 from backend.core import db
@@ -20,11 +21,13 @@ class AgentManager:
         llm: LLMClient | None = None,
         kb_manager=None,
         skills_manager=None,
+        supervisor=None,
     ) -> None:
         self.db_path = db_path or db.get_db_path()
         self.llm = llm or LLMClient()
         self.kb_manager = kb_manager
         self.skills_manager = skills_manager
+        self.supervisor = supervisor
 
     async def _ensure_db(self) -> None:
         await db.ensure_initialized(self.db_path)
@@ -40,8 +43,9 @@ class AgentManager:
         tool_whitelist: list[str] | None = None,
         schedule_json: dict | None = None,
         skill_whitelist: list[str] | None = None,
+        auto_work: bool = False,
     ) -> dict:
-        """雇佣智能体员工（初始 off_duty）。"""
+        """雇佣智能体员工（初始 off_duty）。auto_work=True 时到点值班自动上班。"""
         if not name or not name.strip():
             raise ValueError("员工姓名不能为空")
         await self._ensure_db()
@@ -56,6 +60,7 @@ class AgentManager:
             tool_whitelist or [],
             schedule_json or {},
             skill_whitelist or [],
+            auto_work=auto_work,
         )
         return await self.get(agent_id)
 
@@ -83,6 +88,66 @@ class AgentManager:
         await self.get(agent_id)
         await db.set_agent_status(self.db_path, agent_id, status)
         return await self.get(agent_id)
+
+    # ---------- 值班（P3.1） ----------
+
+    async def duty_shift(self, agent_id: str) -> dict:
+        """值班一轮：自动上班 → 自动接单（名下待办/已规划任务）→ 写工作汇报。
+
+        汇报为纯事实记录（不调 LLM）：处理几件、各任务当前状态。
+        """
+        agent = await self.get(agent_id)
+        if agent["status"] != "on_duty":
+            await db.set_agent_status(self.db_path, agent_id, "on_duty")
+
+        pending = await db.list_agent_tasks(
+            self.db_path, agent_id, ["PENDING", "PLANNED"]
+        )
+        for task in pending:
+            try:
+                if self.supervisor is None:
+                    break
+                if task["status"] == "PENDING":
+                    await self.supervisor.plan(task["id"])
+                await self.supervisor.approve(task["id"])
+                asyncio.create_task(self.supervisor.run(task["id"]))
+            except Exception:  # noqa: S110 BLE001 - 单任务失败不影响本轮其余任务
+                pass
+
+        report = await self._write_report(agent, pending)
+        return {
+            "agent_id": agent_id,
+            "name": agent["name"],
+            "status": "on_duty",
+            "picked": len(pending),
+            "report_task_id": report["task_id"],
+        }
+
+    async def _write_report(self, agent: dict, tasks: list[dict]) -> dict:
+        """生成工作汇报（kind=report）进任务中心，标记完成。"""
+        from datetime import UTC, datetime
+
+        ts = datetime.now(UTC).strftime("%Y-%m-%d %H:%M")
+        if tasks:
+            lines = "\n".join(
+                f"- {t['goal'] or t.get('title') or t['id']}（状态：{t['status']}）"
+                for t in tasks
+            )
+            body = f"值班轮次 {ts}：接单 {len(tasks)} 件，已授权执行：\n{lines}"
+        else:
+            body = f"值班轮次 {ts}：名下无待处理任务。"
+        task_id = uuid.uuid4().hex[:12]
+        await db.insert_task(
+            self.db_path,
+            task_id,
+            body,
+            "duty",
+            kind="report",
+            title="",
+            assignee_id=agent["id"],
+        )
+        await db.complete_task(self.db_path, task_id)
+        return {"task_id": task_id}
 
     # ---------- 对话 ----------
 

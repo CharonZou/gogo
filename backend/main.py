@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.agents.duty import DutyScheduler
 from backend.agents.manager import AgentManager
 from backend.apps.manager import AppManager
 from backend.assistant.service import AssistantService
@@ -53,11 +54,14 @@ settings = get_settings()
 supervisor = Supervisor()
 kb_manager = KBManager()
 skill_manager = SkillManager()
-agent_manager = AgentManager(kb_manager=kb_manager, skills_manager=skill_manager)
+agent_manager = AgentManager(
+    kb_manager=kb_manager, skills_manager=skill_manager, supervisor=supervisor
+)
 workflow_manager = WorkflowManager()
 app_manager = AppManager()
 automation_manager = AutomationManager(supervisor=supervisor)
 automation_scheduler = AutomationScheduler(automation_manager)
+duty_scheduler = DutyScheduler(agent_manager)
 mcp_manager = MCPManager(executor=supervisor.tools)
 assistant = AssistantService(supervisor, agent_manager)
 
@@ -74,8 +78,11 @@ async def lifespan(_: FastAPI):
         await mcp_manager.load_enabled()
     if settings.automation_scheduler_enabled:
         automation_scheduler.start()
+    if settings.duty_scheduler_enabled:
+        duty_scheduler.start()
     yield
     await automation_scheduler.stop()
+    await duty_scheduler.stop()
     await mcp_manager.shutdown()
 
 
@@ -216,6 +223,7 @@ async def hire_agent(payload: AgentCreate) -> dict:
             tool_whitelist=payload.tool_whitelist,
             schedule_json=payload.schedule_json,
             skill_whitelist=payload.skill_whitelist,
+            auto_work=payload.auto_work,
         )
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -249,6 +257,7 @@ async def update_agent(agent_id: str, payload: AgentUpdate) -> dict:
             tool_whitelist=payload.tool_whitelist,
             schedule_json=payload.schedule_json,
             skill_whitelist=payload.skill_whitelist,
+            auto_work=payload.auto_work,
         )
     except Exception as exc:
         raise _http_error(exc) from exc
@@ -268,6 +277,15 @@ async def deactivate_agent(agent_id: str) -> dict:
     """员工下班。"""
     try:
         return await agent_manager.set_status(agent_id, "off_duty")
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/agents/{agent_id}/duty")
+async def duty_agent(agent_id: str) -> dict:
+    """手动值班一轮：自动上班 → 自动接单 → 写工作汇报。"""
+    try:
+        return await agent_manager.duty_shift(agent_id)
     except Exception as exc:
         raise _http_error(exc) from exc
 
