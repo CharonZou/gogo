@@ -117,8 +117,8 @@ backend/
 
 - **Phase 1 ✅**：RPC 层 + 编排状态机接口桩 + 工具执行器骨架。
 - **Phase 2（进行中）**：Plan DAG 落库（aiosqlite）✅ · Supervisor 真实 LLM 规划（DeepSeek/OpenAI 兼容）✅ · DAG 执行引擎（拓扑推进/并行/重试）✅ · 本地沙箱 + 默认工具（bash/读写文件）✅ · 记忆存储（LIKE 检索）✅；待办：向量检索（sqlite-vec）、WebSocket 流式输出、任务中心管理 API。
-- **Phase 3**：技能体系 / MCP / RAG。
-- **Phase 4**：调度值班、IM 网关、应用中心（工作流沉淀为可复用应用）。
+- **Phase 3**：技能体系 / MCP / RAG · 上下文摘要压缩（长任务防失焦）· 文件上传注入 · 任务级工作目录（workspace/uploads/outputs）。
+- **Phase 4**：调度值班、IM 网关、应用中心（工作流沉淀为可复用应用）· 断点续跑与中断工具调用修补。
 
 ## 8. 设计决策记录（ADR）
 
@@ -139,3 +139,24 @@ backend/
   | 计划 DAG | 图结构表达 | networkx 原生（两者可共存） |
 
   **结论**：维持 ADR-001 的自研决策（无头引擎以最小依赖、可控 RPC 面优先），标记为**待复审**——若 Phase 2 实现断点续跑 / 中间件链时成本超预期，切换 LangGraph 的成本仍可控（计划 DAG 与 networkx 兼容，Supervisor 接口可保留）。
+
+- **2026-09-08 · ADR-005 · DeerFlow 2.0 中间件链 / 子智能体设计对照与借鉴**
+
+  情报：核验字节 DeerFlow 2.0（2026-02 开源，MIT，基于 LangGraph + LangChain 彻底重写，与 v1 无共用代码）。官方定位 **Super Agent Harness**；核心骨架 = Lead Agent + 中间件链 + ThreadState。中间件实测清单：ThreadData（线程目录）→ Uploads（上传注入）→ Sandbox（沙箱分配）→ DanglingToolCall（修补中断的工具调用）→ Summarization（上下文摘要压缩）→ TodoList（计划模式）→ Title（自动标题）→ Memory…；子智能体**按需生成并行执行（≤3）**；沙箱虚拟路径 `/mnt/user-data/`；SKILL.md 技能 + MCP 网关。官方案例：同一对话跨数十轮完成「调研 → 科普图 → PPT → 视频」不丢目标，关键能力即 Summarization 摘要压缩与 TodoList。
+
+  | DeerFlow 2.0 中间件 | RocheFlow 现状 | 判断 |
+  |---|---|---|
+  | ThreadData 线程目录（workspace/uploads/outputs） | 本地沙箱 root + 路径越界校验 | **采纳**：任务级自动建 workspace/uploads/outputs 子目录 |
+  | Uploads 上传注入 | 无 | 采纳（随 P2 文件上传 / 知识库） |
+  | Sandbox 沙箱分配 | LocalSandbox ✅（30s 超时 / 越界拦截） | 已有；待补 Docker / K8s |
+  | DanglingToolCall 中断修补 | 无 | 暂缓（随 P3 断点续跑一起做） |
+  | Summarization 上下文摘要压缩 | 无（facts 仅 LIKE 检索） | **采纳**（P2 记忆增强，直接治"半途而废"） |
+  | TodoList 计划模式 | planner + subtasks 表 ✅ | 已等价，无需引入 |
+  | Title 自动标题 | 无 | 低优先，可后补 |
+  | Memory 记忆 | facts 表 ✅（待向量） | 已有雏形，P2 继续 |
+  | 子智能体 ≤3 并行 | executor max_concurrency=2 | 对齐为 ≤3（settings） |
+
+  **决策**：
+  1. **近期采纳**——任务级工作目录三件套（workspace/uploads/outputs）；并行上限对齐 3。
+  2. **排期采纳（P2/P3）**——上下文摘要压缩（长任务防失焦）；文件上传注入；断点续跑 + 中断工具调用修补。
+  3. **维持不采纳**——LangGraph 框架本身（ADR-001/004 复审结论不变：中间件是**模式**不是框架，可在自研状态机上逐个落地）。
