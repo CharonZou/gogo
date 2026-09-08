@@ -25,13 +25,17 @@ from backend.core.schemas import (
     ChatRequest,
     TaskCreate,
     TaskUpdate,
+    WorkflowCreate,
+    WorkflowUpdate,
 )
 from backend.llm.client import LLMNotConfiguredError
 from backend.orchestration.supervisor import Supervisor
+from backend.workflows.manager import WorkflowManager
 
 settings = get_settings()
 supervisor = Supervisor()
 agent_manager = AgentManager()
+workflow_manager = WorkflowManager()
 assistant = AssistantService(supervisor, agent_manager)
 
 
@@ -241,16 +245,65 @@ async def chat_agent(agent_id: str, payload: ChatRequest) -> dict:
         raise _http_error(exc) from exc
 
 
-@app.get("/api/v1/workflows/example")
-async def example_workflow() -> dict:
-    """示例计划 DAG（networkx 序列化，冒烟用）。"""
-    from backend.orchestration.dag import build_empty_dag, to_dict
+@app.get("/api/v1/workflows")
+async def list_workflows() -> list[dict]:
+    """工作流模板列表。"""
+    return await workflow_manager.list()
 
-    graph = build_empty_dag()
-    graph.add_node("plan")
-    graph.add_node("execute")
-    graph.add_edge("plan", "execute")
-    return to_dict(graph)
+
+@app.post("/api/v1/workflows")
+async def create_workflow(payload: WorkflowCreate) -> dict:
+    """创建工作流模板：步骤 DAG 校验后落库（draft）。"""
+    try:
+        return await workflow_manager.create(
+            payload.name,
+            payload.description,
+            [s.model_dump() for s in payload.steps],
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/workflows/{workflow_id}")
+async def get_workflow(workflow_id: str) -> dict:
+    """工作流模板详情。"""
+    try:
+        return await workflow_manager.get(workflow_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.patch("/api/v1/workflows/{workflow_id}")
+async def update_workflow(workflow_id: str, payload: WorkflowUpdate) -> dict:
+    """更新模板（名称 / 说明 / 步骤 / 状态）。"""
+    try:
+        return await workflow_manager.update(
+            workflow_id,
+            name=payload.name,
+            description=payload.description,
+            steps=[s.model_dump() for s in payload.steps] if payload.steps else None,
+            status=payload.status,
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/workflows/{workflow_id}")
+async def delete_workflow(workflow_id: str) -> dict:
+    """删除模板。"""
+    try:
+        return await workflow_manager.delete(workflow_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/workflows/{workflow_id}/run")
+async def run_workflow(workflow_id: str) -> dict:
+    """实例化：创建任务 + 步骤落库（PLANNED），随后可 approve 执行。"""
+    try:
+        return await workflow_manager.run(workflow_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
 
 
 @app.websocket("/ws")

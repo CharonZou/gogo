@@ -49,3 +49,26 @@ class ChatRequest(BaseModel):
 
 class AssistantMessage(BaseModel):
     message: str = Field(..., description="自然语言指令，如「帮我记一条待办」")
+
+
+class WorkflowStep(BaseModel):
+    id: str = Field(..., description="步骤唯一标识（模板内全局唯一）")
+    title: str = Field(..., description="步骤标题")
+    description: str = Field(default="", description="步骤说明、产出物")
+    depends_on: list[str] = Field(default_factory=list, description="依赖的步骤 id（须已存在，不得成环）")
+    acceptance: str = Field(default="", description="验收标准")
+    tool: str = Field(default="noop", description="执行工具（默认 noop 直接成功）")
+    tool_args: dict = Field(default_factory=dict, description="工具参数")
+
+
+class WorkflowCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="工作流名称")
+    description: str = Field(default="", description="工作流说明")
+    steps: list[WorkflowStep] = Field(..., min_length=1, description="步骤列表（DAG）")
+
+
+class WorkflowUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = None
+    steps: list[WorkflowStep] | None = Field(default=None, min_length=1)
+    status: str | None = Field(default=None, pattern="^(draft|active|archived)$")

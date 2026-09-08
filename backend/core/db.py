@@ -66,6 +66,17 @@ CREATE TABLE IF NOT EXISTS agents (
   created_at     TEXT NOT NULL,
   updated_at     TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS workflows (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
+  steps_json  TEXT NOT NULL DEFAULT '[]',
+  status      TEXT NOT NULL DEFAULT 'draft',
+  run_count   INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
 """
 
 # tasks 扩展列（旧库迁移用；新库直接建全）
@@ -447,3 +458,98 @@ async def search_facts(path: str, query: str, top_k: int = 5) -> list[dict]:
         )
         rows = await cur.fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+# ---------- workflows（工作流模板） ----------
+
+def _workflow_to_dict(row: aiosqlite.Row) -> dict:
+    d = _row_to_dict(row)
+    try:
+        d["steps"] = json.loads(d.pop("steps_json") or "[]")
+    except json.JSONDecodeError:
+        d["steps"] = []
+    return d
+
+
+async def insert_workflow(
+    path: str,
+    workflow_id: str,
+    name: str,
+    description: str,
+    steps_json: str,
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO workflows "
+            "(id, name, description, steps_json, status, run_count, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'draft', 0, ?, ?)",
+            (workflow_id, name, description, steps_json, now, now),
+        )
+        await db.commit()
+
+
+async def get_workflow(path: str, workflow_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM workflows WHERE id = ?", (workflow_id,)
+        )
+        row = await cur.fetchone()
+    return _workflow_to_dict(row) if row else None
+
+
+async def list_workflows(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM workflows ORDER BY created_at DESC")
+        rows = await cur.fetchall()
+    return [_workflow_to_dict(r) for r in rows]
+
+
+async def update_workflow(
+    path: str,
+    workflow_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    steps_json: str | None = None,
+    status: str | None = None,
+) -> None:
+    now = _now()
+    sets = ["updated_at = ?"]
+    values: list[Any] = [now]
+    for col, val in (
+        ("name", name),
+        ("description", description),
+        ("steps_json", steps_json),
+        ("status", status),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            values.append(val)
+    values.append(workflow_id)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            f"UPDATE workflows SET {', '.join(sets)} WHERE id = ?", values
+        )
+        await db.commit()
+
+
+async def delete_workflow(path: str, workflow_id: str) -> bool:
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute(
+            "DELETE FROM workflows WHERE id = ?", (workflow_id,)
+        )
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def increment_workflow_run_count(path: str, workflow_id: str) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE workflows SET run_count = run_count + 1, updated_at = ? WHERE id = ?",
+            (now, workflow_id),
+        )
+        await db.commit()

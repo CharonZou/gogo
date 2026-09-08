@@ -28,14 +28,37 @@ def test_create_task() -> None:
         assert data["task_id"]
 
 
-def test_example_workflow_dag() -> None:
+def test_workflow_template_smoke() -> None:
+    """P1.4 工作流模板：创建 → 实例化 → 闭环执行。"""
     with _client() as client:
-        resp = client.get("/api/v1/workflows/example")
+        resp = client.post(
+            "/api/v1/workflows",
+            json={
+                "name": "冒烟流程",
+                "description": "两步顺序执行",
+                "steps": [
+                    {"id": "s1", "title": "准备", "depends_on": []},
+                    {"id": "s2", "title": "产出", "depends_on": ["s1"]},
+                ],
+            },
+        )
         assert resp.status_code == 200
-        data = resp.json()
-        assert {"id": "plan"} in data["nodes"]
-        assert {"id": "execute"} in data["nodes"]
-        assert {"from": "plan", "to": "execute"} in data["edges"]
+        wf = resp.json()
+        assert wf["status"] == "draft"
+        assert wf["run_count"] == 0
+        assert [s["id"] for s in wf["steps"]] == ["s1", "s2"]
+
+        run = client.post(f"/api/v1/workflows/{wf['id']}/run")
+        assert run.status_code == 200
+        task_id = run.json()["task_id"]
+        assert run.json()["status"] == "PLANNED"
+
+        task = client.get(f"/api/v1/tasks/{task_id}").json()
+        assert task["status"] == "PLANNED"
+        assert len(task["subtasks"]) == 2
+
+        wf_after = client.get(f"/api/v1/workflows/{wf['id']}").json()
+        assert wf_after["run_count"] == 1
 
 
 def test_state_machine_full_lifecycle() -> None:
