@@ -1,5 +1,7 @@
 # RocheFlow
 
+<img src="assets/logo.png" alt="RocheFlow Logo" width="96" height="96" />
+
 > 用AI帮你干活的工作平台
 
 记待办、派任务、跑工作流，也可以养「智能体员工」帮你执行。跟AI说说你要做什么，它就能在对应模块里帮你创建和管理。
