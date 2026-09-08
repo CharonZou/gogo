@@ -1,21 +1,32 @@
-"""跨会话记忆与资产存储（接口桩）。
+"""跨会话记忆与资产存储。
 
-TODO：aiosqlite 落库 + sqlite-vec 向量检索；资产类型（画像/记忆/经验/反思/专长）。
+真实实现：SQLite（aiosqlite）存取；检索暂用 LIKE 关键词匹配，
+向量检索（sqlite-vec）在 Phase 3 接入。
 """
 
 from __future__ import annotations
 
+from backend.core import db
+
 
 class MemoryStore:
-    """记忆与资产存储入口。"""
+    def __init__(self, path: str | None = None) -> None:
+        self.path = path or db.get_db_path()
+        self._ready = False
 
-    def __init__(self, path: str) -> None:
-        self.path = path
+    async def _ensure(self) -> None:
+        if not self._ready:
+            await db.init_db(self.path)
+            self._ready = True
 
     async def save_fact(self, key: str, value: str) -> None:
-        """保存一条结构化事实（用户画像 / 经验 / 反思等）。"""
-        raise NotImplementedError("记忆落库待实现")
+        await self._ensure()
+        await db.save_fact(self.path, key, value)
+
+    async def get_fact(self, key: str) -> str | None:
+        await self._ensure()
+        return await db.get_fact(self.path, key)
 
     async def search(self, query: str, *, top_k: int = 5) -> list[dict]:
-        """向量检索相关记忆/资产。"""
-        raise NotImplementedError("记忆检索待实现")
+        await self._ensure()
+        return await db.search_facts(self.path, query, top_k=top_k)

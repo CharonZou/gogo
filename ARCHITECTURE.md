@@ -115,8 +115,8 @@ backend/
 
 ## 7. 开发路线
 
-- **Phase 1（当前）**：RPC 层 + 编排状态机接口桩 + 工具执行器骨架。
-- **Phase 2**：Plan DAG 落库与执行、沙箱接入、记忆存储。
+- **Phase 1 ✅**：RPC 层 + 编排状态机接口桩 + 工具执行器骨架。
+- **Phase 2（进行中）**：Plan DAG 落库（aiosqlite）✅ · Supervisor 真实 LLM 规划（DeepSeek/OpenAI 兼容）✅ · DAG 执行引擎（拓扑推进/并行/重试）✅ · 本地沙箱 + 默认工具（bash/读写文件）✅ · 记忆存储（LIKE 检索）✅；待办：向量检索（sqlite-vec）、WebSocket 流式输出、任务中心管理 API。
 - **Phase 3**：技能体系 / MCP / RAG。
 - **Phase 4**：调度值班、IM 网关、应用中心（工作流沉淀为可复用应用）。
 

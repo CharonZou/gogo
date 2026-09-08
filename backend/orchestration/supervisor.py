@@ -1,40 +1,146 @@
-"""Supervisor：澄清意图 → 拆子任务 DAG → 授权 → 验收（接口桩）。
+"""Supervisor：澄清意图 → 拆子任务 DAG → 授权 → 验收。
 
-当前仅提供任务创建；规划与执行逻辑后续接入。
+真实实现：任务落库、LLM 规划落库、授权后由执行引擎推进。
+规划器可注入（测试用 fake），默认走 LLM 网关。
 """
 
 from __future__ import annotations
 
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Awaitable, Callable
+from typing import Any
 
-from backend.orchestration.state_machine import StateMachine
+from backend.core import db
+from backend.core.config import get_settings
+from backend.llm.client import LLMClient
+from backend.orchestration.executor import execute_dag
+from backend.orchestration.planner import (
+    PlanTask,
+    parse_plan,
+    plan_to_dict,
+    plan_to_json,
+    plan_with_llm,
+)
+from backend.tools.executor import ToolExecutor, build_default_executor
 
+Planner = Callable[[str], Awaitable[dict]]
 
-@dataclass
-class Task:
-    task_id: str
-    goal: str
-    source: str
-    machine: StateMachine = field(default_factory=StateMachine)
+_initialized_paths: set[str] = set()
 
 
 class Supervisor:
-    """编排入口。"""
+    def __init__(
+        self,
+        db_path: str | None = None,
+        llm: LLMClient | None = None,
+        planner: Planner | None = None,
+        tools: ToolExecutor | None = None,
+        *,
+        max_concurrency: int | None = None,
+        max_retries: int | None = None,
+    ) -> None:
+        settings = get_settings()
+        self.db_path = db_path or db.get_db_path()
+        self.llm = llm or LLMClient()
+        self.planner = planner or _default_planner(self.llm)
+        self.tools = tools or build_default_executor()
+        self.max_concurrency = max_concurrency or settings.max_concurrency
+        self.max_retries = max_retries if max_retries is not None else settings.max_retries
 
-    def __init__(self) -> None:
-        self._tasks: dict[str, Task] = {}
+    async def _ensure_db(self) -> None:
+        """惰性初始化 schema（幂等，按路径缓存）。"""
+        if self.db_path in _initialized_paths:
+            return
+        await db.init_db(self.db_path)
+        _initialized_paths.add(self.db_path)
 
-    def create_task_stub(self, payload: dict) -> str:
-        """创建任务（桩）：生成 ID 并登记，状态 PENDING。"""
+    # ---------- Plan → Execute → Verify 闭环 ----------
+
+    async def create_task(self, goal: str, source: str = "rpc") -> dict:
+        """创建任务（PENDING）。"""
+        await self._ensure_db()
         task_id = uuid.uuid4().hex[:12]
-        task = Task(
-            task_id=task_id,
-            goal=str(payload.get("goal", "")),
-            source=str(payload.get("source", "rpc")),
-        )
-        self._tasks[task_id] = task
-        return task_id
+        await db.insert_task(self.db_path, task_id, goal, source)
+        return {"task_id": task_id, "status": "PENDING"}
 
-    def get_task(self, task_id: str) -> Task | None:
-        return self._tasks.get(task_id)
+    async def plan(self, task_id: str) -> dict:
+        """规划：LLM 拆解目标 → 校验 → 子任务落库，任务进入 PLANNED。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] not in ("PENDING", "PLANNED", "FAILED"):
+            raise ValueError(f"当前状态不允许规划：{task['status']}")
+
+        raw = await self.planner(task["goal"])
+        plan = parse_plan(raw)
+
+        await db.delete_subtasks(self.db_path, task_id)  # 重规划时清旧计划
+        for position, sub in enumerate(plan):
+            await db.insert_subtask(
+                self.db_path,
+                sub.id,
+                task_id,
+                sub.title,
+                sub.description,
+                sub.depends_on,
+                sub.tool,
+                sub.tool_args,
+                position,
+            )
+        await db.update_task_status(
+            self.db_path, task_id, "PLANNED", plan_json=plan_to_json(plan)
+        )
+        return plan_to_dict(plan)
+
+    async def approve(self, task_id: str) -> dict:
+        """授权：仅允许 PLANNED 状态，进入 APPROVED 并启动后台执行。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] != "PLANNED":
+            raise ValueError(f"需先完成规划（当前状态：{task['status']}）")
+        await db.update_task_status(self.db_path, task_id, "APPROVED")
+        return {"task_id": task_id, "status": "APPROVED", "message": "已授权，等待执行"}
+
+    async def run(self, task_id: str) -> dict:
+        """同步执行计划 DAG（供后台任务 / 测试直接调用）。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] not in ("APPROVED", "PENDING", "PLANNED"):
+            raise ValueError(f"当前状态不允许执行：{task['status']}")
+        final = await execute_dag(
+            self.db_path,
+            task_id,
+            self.tools,
+            max_concurrency=self.max_concurrency,
+            max_retries=self.max_retries,
+        )
+        return {"task_id": task_id, "status": final}
+
+    async def status(self, task_id: str) -> dict:
+        """任务状态 + 子任务明细。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        subtasks = await db.list_subtasks(self.db_path, task_id)
+        return {**task, "subtasks": subtasks}
+
+    # ---------- 查询 ----------
+
+    async def list(self, limit: int = 50) -> list[dict]:
+        await self._ensure_db()
+        return await db.list_tasks(self.db_path, limit=limit)
+
+
+def _default_planner(llm: LLMClient) -> Planner:
+    """默认规划器：LLM 网关（闭包）。"""
+
+    async def _plan(goal: str) -> dict:
+        return await plan_with_llm(llm, goal)
+
+    return _plan

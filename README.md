@@ -26,11 +26,25 @@ Python 3.12 + uv · FastAPI / WebSocket · asyncio + networkx · SQLite（aiosql
 # 安装依赖（Python 3.12+，uv 自动管理虚拟环境）
 uv sync
 
+# 配置（复制并填入 LLM_API_KEY，规划必需）
+cp .env.example .env
+
 # 启动引擎（本地 RPC，默认 127.0.0.1:8031）
 uv run uvicorn backend.main:app --reload
 
 # 运行测试
 uv run pytest
+```
+
+**Plan → Execute → Verify 闭环**（默认端口 8031）：
+
+```bash
+curl -X POST localhost:8031/api/v1/tasks -H "Content-Type: application/json" -d '{"goal":"调研 DeepSeek 并输出周报"}'
+# → {"task_id":"...","status":"PENDING"}
+
+curl -X POST localhost:8031/api/v1/tasks/<task_id>/plan     # LLM 拆解为子任务 DAG → PLANNED
+curl -X POST localhost:8031/api/v1/tasks/<task_id>/approve  # 授权 → 后台执行
+curl localhost:8031/api/v1/tasks/<task_id>                  # 状态 + 子任务明细
 ```
 
 > 浏览器自动化能力需额外执行 `uv run playwright install`（按需启用）。

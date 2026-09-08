@@ -16,7 +16,19 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = 8031
     cors_origins: str = "*"
+
+    # 存储
     sqlite_path: str = "data/rocheflow.db"
+    sandbox_root: str = "data/sandbox"
+
+    # LLM 网关（OpenAI 兼容，默认 DeepSeek）
+    llm_base_url: str = "https://api.deepseek.com"
+    llm_api_key: str = ""
+    llm_model: str = "deepseek-chat"
+
+    # 执行引擎
+    max_concurrency: int = 2
+    max_retries: int = 1
 
 
 @lru_cache
