@@ -40,17 +40,47 @@ class LLMClient:
         max_tokens: int = 4096,
     ) -> dict:
         """请求 JSON 输出并解析为 dict。"""
+        content = await self._complete(
+            messages, temperature=temperature, max_tokens=max_tokens, json_mode=True
+        )
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"模型未返回合法 JSON：{content[:200]}") from exc
+
+    async def chat_text(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float = 0.4,
+        max_tokens: int = 2048,
+    ) -> str:
+        """普通对话补全（自然语言输出，如智能体员工回答）。"""
+        return await self._complete(
+            messages, temperature=temperature, max_tokens=max_tokens, json_mode=False
+        )
+
+    async def _complete(
+        self,
+        messages: list[dict],
+        *,
+        temperature: float,
+        max_tokens: int,
+        json_mode: bool,
+    ) -> str:
+        """请求补全并返回 message content。"""
         if not self.configured:
             raise LLMNotConfiguredError(
                 "未配置 LLM_API_KEY，请在 .env 中设置（默认 DeepSeek）"
             )
-        payload = {
+        payload: dict = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
             "max_tokens": max_tokens,
-            "response_format": {"type": "json_object"},
         }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
         async with httpx.AsyncClient(timeout=120) as client:
             resp = await client.post(
                 f"{self.base_url}/chat/completions",
@@ -60,8 +90,4 @@ class LLMClient:
             resp.raise_for_status()
             data = resp.json()
 
-        content = data["choices"][0]["message"]["content"]
-        try:
-            return json.loads(content)
-        except json.JSONDecodeError as exc:
-            raise ValueError(f"模型未返回合法 JSON：{content[:200]}") from exc
+        return data["choices"][0]["message"]["content"]

@@ -73,12 +73,31 @@ curl localhost:8031/api/v1/tasks/<task_id>                  # 状态 + 子任务
 
 > 浏览器自动化能力需额外执行 `uv run playwright install`（按需启用）。
 
+**任务中心与智能体员工**（P1.1 / P1.2，默认端口 8031）：
+
+```bash
+# 记一条待办（kind=todo 用 title）
+curl -X POST localhost:8031/api/v1/tasks -H "Content-Type: application/json" -d '{"kind":"todo","title":"买牛奶","due_at":"2026-09-09"}'
+
+# 雇佣智能体员工（初始 off_duty）
+curl -X POST localhost:8031/api/v1/agents -H "Content-Type: application/json" -d '{"name":"小周","role":"周报专员","soul":"认真细致"}'
+
+# 员工上班 / 直接对话（chat 会真实调用 LLM）
+curl -X POST localhost:8031/api/v1/agents/<agent_id>/activate
+curl -X POST localhost:8031/api/v1/agents/<agent_id>/chat -H "Content-Type: application/json" -d '{"message":"你好"}'
+
+# 派给员工 / 标记完成
+curl -X POST localhost:8031/api/v1/tasks/<task_id>/assign -H "Content-Type: application/json" -d '{"agent_id":"<agent_id>"}'
+curl -X POST localhost:8031/api/v1/tasks/<task_id>/complete
+```
+
 ## 目录结构
 
 ```
 backend/
 ├── main.py              # FastAPI 入口（HTTP + WebSocket 本地 RPC）
 ├── core/                # 配置 / schema
+├── agents/              # 智能体员工（雇佣 / 上下班 / 对话）
 ├── orchestration/       # Plan→Execute→Verify 状态机 + networkx 计划 DAG + Supervisor
 ├── sandbox/             # 沙箱抽象（本地 / Docker / K8s）
 ├── tools/               # 工具执行器

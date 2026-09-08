@@ -13,14 +13,23 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.agents.manager import AgentManager
 from backend.core import db
 from backend.core.config import get_settings
-from backend.core.schemas import TaskCreate
+from backend.core.schemas import (
+    AgentCreate,
+    AgentUpdate,
+    AssignRequest,
+    ChatRequest,
+    TaskCreate,
+    TaskUpdate,
+)
 from backend.llm.client import LLMNotConfiguredError
 from backend.orchestration.supervisor import Supervisor
 
 settings = get_settings()
 supervisor = Supervisor()
+agent_manager = AgentManager()
 
 
 @asynccontextmanager
@@ -31,7 +40,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="RocheFlow Agent Engine",
-    version="0.2.0",
+    version="0.3.0",
     description="无头智能体引擎：编排 / 沙箱 / 记忆 / 技能 / MCP / 调度",
     lifespan=lifespan,
 )
@@ -58,13 +67,62 @@ def _http_error(exc: Exception) -> HTTPException:
 @app.get("/health")
 async def health() -> dict:
     """存活探针。"""
-    return {"status": "ok", "service": "rocheflow", "version": "0.2.0"}
+    return {"status": "ok", "service": "rocheflow", "version": "0.3.0"}
 
 
 @app.post("/api/v1/tasks")
 async def create_task(payload: TaskCreate) -> dict:
-    """创建任务（PENDING）。"""
-    return await supervisor.create_task(payload.goal, payload.source)
+    """创建任务 / 待办（PENDING）。"""
+    try:
+        return await supervisor.create_task(
+            payload.goal,
+            payload.source,
+            kind=payload.kind,
+            title=payload.title,
+            due_at=payload.due_at,
+            priority=payload.priority,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/tasks")
+async def list_tasks() -> list[dict]:
+    """任务列表。"""
+    return await supervisor.list()
+
+
+@app.patch("/api/v1/tasks/{task_id}")
+async def update_task(task_id: str, payload: TaskUpdate) -> dict:
+    """修改任务（标题 / 截止 / 优先级 / 目标）。"""
+    try:
+        return await supervisor.update_task(
+            task_id,
+            goal=payload.goal,
+            title=payload.title,
+            due_at=payload.due_at,
+            priority=payload.priority,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/assign")
+async def assign_task(task_id: str, payload: AssignRequest) -> dict:
+    """派给智能体员工。"""
+    try:
+        return await supervisor.assign_task(task_id, payload.agent_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/complete")
+async def complete_task(task_id: str) -> dict:
+    """标记完成。"""
+    try:
+        return await supervisor.complete_task(task_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
 
 
 @app.get("/api/v1/tasks")
@@ -98,6 +156,81 @@ async def task_status(task_id: str) -> dict:
     """任务状态 + 子任务明细。"""
     try:
         return await supervisor.status(task_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/agents")
+async def hire_agent(payload: AgentCreate) -> dict:
+    """雇佣智能体员工。"""
+    try:
+        return await agent_manager.hire(
+            payload.name,
+            role=payload.role,
+            soul=payload.soul,
+            model=payload.model,
+            tool_whitelist=payload.tool_whitelist,
+            schedule_json=payload.schedule_json,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/agents")
+async def list_agents() -> list[dict]:
+    """智能体员工列表。"""
+    return await agent_manager.list()
+
+
+@app.get("/api/v1/agents/{agent_id}")
+async def get_agent(agent_id: str) -> dict:
+    """员工详情。"""
+    try:
+        return await agent_manager.get(agent_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.patch("/api/v1/agents/{agent_id}")
+async def update_agent(agent_id: str, payload: AgentUpdate) -> dict:
+    """修改员工配置。"""
+    try:
+        return await agent_manager.update(
+            agent_id,
+            name=payload.name,
+            role=payload.role,
+            soul=payload.soul,
+            model=payload.model,
+            tool_whitelist=payload.tool_whitelist,
+            schedule_json=payload.schedule_json,
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/agents/{agent_id}/activate")
+async def activate_agent(agent_id: str) -> dict:
+    """员工上班。"""
+    try:
+        return await agent_manager.set_status(agent_id, "on_duty")
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/agents/{agent_id}/deactivate")
+async def deactivate_agent(agent_id: str) -> dict:
+    """员工下班。"""
+    try:
+        return await agent_manager.set_status(agent_id, "off_duty")
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/agents/{agent_id}/chat")
+async def chat_agent(agent_id: str, payload: ChatRequest) -> dict:
+    """直接对话：员工基于人设回答。"""
+    try:
+        return await agent_manager.chat(agent_id, payload.message)
     except Exception as exc:  # noqa: BLE001
         raise _http_error(exc) from exc
 

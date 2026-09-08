@@ -56,12 +56,84 @@ class Supervisor:
 
     # ---------- Plan → Execute → Verify 闭环 ----------
 
-    async def create_task(self, goal: str, source: str = "rpc") -> dict:
-        """创建任务（PENDING）。"""
+    async def create_task(
+        self,
+        goal: str | None = None,
+        source: str = "rpc",
+        *,
+        kind: str = "task",
+        title: str | None = None,
+        due_at: str | None = None,
+        priority: str = "medium",
+    ) -> dict:
+        """创建任务（PENDING）。kind=todo 用 title，task/report 用 goal。"""
+        if kind not in ("todo", "task", "report"):
+            raise ValueError(f"非法任务类型：{kind}")
+        if priority not in ("low", "medium", "high"):
+            raise ValueError(f"非法优先级：{priority}")
+        if kind == "todo" and not title:
+            raise ValueError("待办（todo）需要提供 title")
+        if kind in ("task", "report") and not goal:
+            raise ValueError(f"{kind} 类型需要提供 goal")
         await self._ensure_db()
         task_id = uuid.uuid4().hex[:12]
-        await db.insert_task(self.db_path, task_id, goal, source)
+        await db.insert_task(
+            self.db_path,
+            task_id,
+            goal or "",
+            source,
+            kind=kind,
+            title=title,
+            due_at=due_at,
+            priority=priority,
+        )
         return {"task_id": task_id, "status": "PENDING"}
+
+    async def update_task(
+        self,
+        task_id: str,
+        *,
+        goal: str | None = None,
+        title: str | None = None,
+        due_at: str | None = None,
+        priority: str | None = None,
+    ) -> dict:
+        """修改任务（标题 / 截止 / 优先级 / 目标）。"""
+        await self._ensure_db()
+        if await db.get_task(self.db_path, task_id) is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if priority is not None and priority not in ("low", "medium", "high"):
+            raise ValueError(f"非法优先级：{priority}")
+        await db.update_task(
+            self.db_path,
+            task_id,
+            goal=goal,
+            title=title,
+            due_at=due_at,
+            priority=priority,
+        )
+        return await db.get_task(self.db_path, task_id)
+
+    async def assign_task(self, task_id: str, agent_id: str) -> dict:
+        """派给智能体员工。"""
+        await self._ensure_db()
+        if await db.get_task(self.db_path, task_id) is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if await db.get_agent(self.db_path, agent_id) is None:
+            raise KeyError(f"智能体员工不存在：{agent_id}")
+        await db.assign_task(self.db_path, task_id, agent_id)
+        return await db.get_task(self.db_path, task_id)
+
+    async def complete_task(self, task_id: str) -> dict:
+        """标记完成（执行中不允许手动完成）。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] in ("RUNNING", "VERIFYING"):
+            raise ValueError(f"任务执行中（{task['status']}），不允许手动完成")
+        await db.complete_task(self.db_path, task_id)
+        return await db.get_task(self.db_path, task_id)
 
     async def plan(self, task_id: str) -> dict:
         """规划：LLM 拆解目标 → 校验 → 子任务落库，任务进入 PLANNED。"""

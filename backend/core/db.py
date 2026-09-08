@@ -17,13 +17,19 @@ from backend.core.config import get_settings
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS tasks (
-  id         TEXT PRIMARY KEY,
-  goal       TEXT NOT NULL,
-  source     TEXT NOT NULL DEFAULT 'rpc',
-  status     TEXT NOT NULL DEFAULT 'PENDING',
-  plan_json  TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL
+  id          TEXT PRIMARY KEY,
+  goal        TEXT NOT NULL DEFAULT '',
+  source      TEXT NOT NULL DEFAULT 'rpc',
+  status      TEXT NOT NULL DEFAULT 'PENDING',
+  plan_json   TEXT,
+  kind        TEXT NOT NULL DEFAULT 'task',
+  title       TEXT,
+  due_at      TEXT,
+  priority    TEXT NOT NULL DEFAULT 'medium',
+  assignee_id TEXT,
+  done_at     TEXT,
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS subtasks (
@@ -47,7 +53,30 @@ CREATE TABLE IF NOT EXISTS facts (
   value      TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS agents (
+  id             TEXT PRIMARY KEY,
+  name           TEXT NOT NULL,
+  role           TEXT NOT NULL DEFAULT '',
+  soul           TEXT NOT NULL DEFAULT '',
+  model          TEXT NOT NULL DEFAULT '',
+  tool_whitelist TEXT NOT NULL DEFAULT '[]',
+  schedule_json  TEXT NOT NULL DEFAULT '{}',
+  status         TEXT NOT NULL DEFAULT 'off_duty',
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
 """
+
+# tasks 扩展列（旧库迁移用；新库直接建全）
+TASK_EXTRA_COLUMNS = {
+    "kind": "TEXT NOT NULL DEFAULT 'task'",
+    "title": "TEXT",
+    "due_at": "TEXT",
+    "priority": "TEXT NOT NULL DEFAULT 'medium'",
+    "assignee_id": "TEXT",
+    "done_at": "TEXT",
+}
 
 
 def get_db_path() -> str:
@@ -63,23 +92,56 @@ def _row_to_dict(row: aiosqlite.Row) -> dict:
 
 
 async def init_db(path: str | None = None) -> None:
-    """初始化 schema（幂等）。"""
+    """初始化 schema（幂等）+ 旧库迁移。"""
     path = path or get_db_path()
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     async with aiosqlite.connect(path) as db:
         await db.executescript(SCHEMA)
+        await _migrate_tasks(db)
         await db.commit()
+
+
+async def _migrate_tasks(db: aiosqlite.Connection) -> None:
+    """为旧版 tasks 表补齐新增列（幂等）。"""
+    cur = await db.execute("PRAGMA table_info(tasks)")
+    rows = await cur.fetchall()
+    existing = {r[1] for r in rows}
+    for col, ddl in TASK_EXTRA_COLUMNS.items():
+        if col not in existing:
+            await db.execute(f"ALTER TABLE tasks ADD COLUMN {col} {ddl}")
+
+
+_initialized_paths: set[str] = set()
+
+
+async def ensure_initialized(path: str) -> None:
+    """惰性初始化 schema（按路径全局缓存，幂等）。"""
+    if path in _initialized_paths:
+        return
+    await init_db(path)
+    _initialized_paths.add(path)
 
 
 # ---------- tasks ----------
 
-async def insert_task(path: str, task_id: str, goal: str, source: str) -> None:
+async def insert_task(
+    path: str,
+    task_id: str,
+    goal: str,
+    source: str,
+    *,
+    kind: str = "task",
+    title: str | None = None,
+    due_at: str | None = None,
+    priority: str = "medium",
+) -> None:
     now = _now()
     async with aiosqlite.connect(path) as db:
         await db.execute(
-            "INSERT INTO tasks (id, goal, source, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, 'PENDING', ?, ?)",
-            (task_id, goal, source, now, now),
+            "INSERT INTO tasks "
+            "(id, goal, source, status, kind, title, due_at, priority, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'PENDING', ?, ?, ?, ?, ?, ?)",
+            (task_id, goal, source, kind, title, due_at, priority, now, now),
         )
         await db.commit()
 
@@ -118,6 +180,162 @@ async def update_task_status(
         await db.execute(
             "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?",
             (status, now, task_id),
+        )
+        await db.commit()
+
+
+async def update_task(
+    path: str,
+    task_id: str,
+    *,
+    goal: str | None = None,
+    title: str | None = None,
+    due_at: str | None = None,
+    priority: str | None = None,
+) -> None:
+    """更新任务可编辑字段（只更新传入的字段）。"""
+    now = _now()
+    sets = ["updated_at = ?"]
+    values: list[Any] = [now]
+    for col, val in (
+        ("goal", goal),
+        ("title", title),
+        ("due_at", due_at),
+        ("priority", priority),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            values.append(val)
+    values.append(task_id)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ?", values)
+        await db.commit()
+
+
+async def assign_task(path: str, task_id: str, agent_id: str) -> None:
+    """派给智能体员工。"""
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE tasks SET assignee_id = ?, updated_at = ? WHERE id = ?",
+            (agent_id, now, task_id),
+        )
+        await db.commit()
+
+
+async def complete_task(path: str, task_id: str) -> None:
+    """标记完成（DONE + done_at）。"""
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE tasks SET status = 'DONE', done_at = ?, updated_at = ? WHERE id = ?",
+            (now, now, task_id),
+        )
+        await db.commit()
+
+
+# ---------- agents（智能体员工） ----------
+
+def _agent_to_dict(row: aiosqlite.Row) -> dict:
+    d = _row_to_dict(row)
+    try:
+        d["tool_whitelist"] = json.loads(d.get("tool_whitelist") or "[]")
+    except json.JSONDecodeError:
+        d["tool_whitelist"] = []
+    try:
+        d["schedule_json"] = json.loads(d.get("schedule_json") or "{}")
+    except json.JSONDecodeError:
+        d["schedule_json"] = {}
+    return d
+
+
+async def insert_agent(
+    path: str,
+    agent_id: str,
+    name: str,
+    role: str,
+    soul: str,
+    model: str,
+    tool_whitelist: list[str],
+    schedule_json: dict,
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO agents "
+            "(id, name, role, soul, model, tool_whitelist, schedule_json, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'off_duty', ?, ?)",
+            (
+                agent_id,
+                name,
+                role,
+                soul,
+                model,
+                json.dumps(tool_whitelist, ensure_ascii=False),
+                json.dumps(schedule_json, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_agent(path: str, agent_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM agents WHERE id = ?", (agent_id,))
+        row = await cur.fetchone()
+    return _agent_to_dict(row) if row else None
+
+
+async def list_agents(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM agents ORDER BY created_at DESC")
+        rows = await cur.fetchall()
+    return [_agent_to_dict(r) for r in rows]
+
+
+async def update_agent(
+    path: str,
+    agent_id: str,
+    *,
+    name: str | None = None,
+    role: str | None = None,
+    soul: str | None = None,
+    model: str | None = None,
+    tool_whitelist: list[str] | None = None,
+    schedule_json: dict | None = None,
+) -> None:
+    now = _now()
+    sets = ["updated_at = ?"]
+    values: list[Any] = [now]
+    for col, val in (
+        ("name", name),
+        ("role", role),
+        ("soul", soul),
+        ("model", model),
+        ("tool_whitelist", tool_whitelist),
+        ("schedule_json", schedule_json),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            if isinstance(val, (list, dict)):
+                values.append(json.dumps(val, ensure_ascii=False))
+            else:
+                values.append(val)
+    values.append(agent_id)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(f"UPDATE agents SET {', '.join(sets)} WHERE id = ?", values)
+        await db.commit()
+
+
+async def set_agent_status(path: str, agent_id: str, status: str) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE agents SET status = ?, updated_at = ? WHERE id = ?",
+            (status, now, agent_id),
         )
         await db.commit()
 
