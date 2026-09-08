@@ -29,3 +29,5 @@ Thumbs.db
 
 # runtime data (本地运行时数据库 / 沙箱)
 data/
+
+docs/user-guide/.obsidian/
