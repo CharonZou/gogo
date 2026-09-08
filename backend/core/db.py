@@ -100,6 +100,36 @@ CREATE TABLE IF NOT EXISTS kb_chunks (
   FOREIGN KEY (doc_id) REFERENCES kb_docs(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_kb_chunks_doc ON kb_chunks(doc_id);
+
+CREATE TABLE IF NOT EXISTS automations (
+  id                  TEXT PRIMARY KEY,
+  name                TEXT NOT NULL,
+  prompt              TEXT NOT NULL,
+  schedule            TEXT NOT NULL DEFAULT '',
+  status              TEXT NOT NULL DEFAULT 'active',
+  trigger_type        TEXT NOT NULL DEFAULT 'cron',
+  thread_mode         TEXT NOT NULL DEFAULT 'fresh',
+  max_duration_minutes INTEGER NOT NULL DEFAULT 30,
+  last_run_at         TEXT NOT NULL DEFAULT '',
+  next_run_at         TEXT NOT NULL DEFAULT '',
+  run_count           INTEGER NOT NULL DEFAULT 0,
+  created_at          TEXT NOT NULL,
+  updated_at          TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS automation_runs (
+  id            TEXT PRIMARY KEY,
+  automation_id TEXT NOT NULL,
+  trigger_type  TEXT NOT NULL DEFAULT 'schedule',
+  started_at    TEXT NOT NULL,
+  finished_at   TEXT NOT NULL DEFAULT '',
+  status        TEXT NOT NULL DEFAULT 'running',
+  task_id       TEXT NOT NULL DEFAULT '',
+  output        TEXT NOT NULL DEFAULT '',
+  error         TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_auto ON automation_runs(automation_id);
 """
 
 # tasks 扩展列（旧库迁移用；新库直接建全）
@@ -752,3 +782,186 @@ def _tokenize(text: str) -> list[str]:
     elif len(cjk) == 1:
         tokens.append(cjk[0])
     return tokens
+
+
+# ---------- 自动化（automations / automation_runs） ----------
+
+async def insert_automation(
+    path: str,
+    automation_id: str,
+    name: str,
+    prompt: str,
+    schedule: str,
+    *,
+    trigger_type: str = "cron",
+    thread_mode: str = "fresh",
+    max_duration_minutes: int = 30,
+    next_run_at: str = "",
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO automations "
+            "(id, name, prompt, schedule, status, trigger_type, thread_mode, "
+            " max_duration_minutes, last_run_at, next_run_at, run_count, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'active', ?, ?, ?, '', ?, 0, ?, ?)",
+            (
+                automation_id,
+                name,
+                prompt,
+                schedule,
+                trigger_type,
+                thread_mode,
+                max_duration_minutes,
+                next_run_at,
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_automation(path: str, automation_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM automations WHERE id = ?", (automation_id,)
+        )
+        row = await cur.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def list_automations(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM automations ORDER BY created_at DESC")
+        rows = await cur.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def update_automation(
+    path: str,
+    automation_id: str,
+    *,
+    name: str | None = None,
+    prompt: str | None = None,
+    schedule: str | None = None,
+    status: str | None = None,
+    trigger_type: str | None = None,
+    thread_mode: str | None = None,
+    max_duration_minutes: int | None = None,
+) -> None:
+    now = _now()
+    sets = ["updated_at = ?"]
+    values: list[Any] = [now]
+    for col, val in (
+        ("name", name),
+        ("prompt", prompt),
+        ("schedule", schedule),
+        ("status", status),
+        ("trigger_type", trigger_type),
+        ("thread_mode", thread_mode),
+        ("max_duration_minutes", max_duration_minutes),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            values.append(val)
+    values.append(automation_id)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            f"UPDATE automations SET {', '.join(sets)} WHERE id = ?", values
+        )
+        await db.commit()
+
+
+async def delete_automation(path: str, automation_id: str) -> bool:
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "DELETE FROM automation_runs WHERE automation_id = ?", (automation_id,)
+        )
+        cur = await db.execute("DELETE FROM automations WHERE id = ?", (automation_id,))
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def mark_automation_fired(
+    path: str,
+    automation_id: str,
+    *,
+    run_at: str,
+    status: str | None = None,
+    next_run_at: str | None = None,
+) -> None:
+    """触发后更新：last_run_at / run_count /（可选）状态与下次触发。"""
+    sets = ["last_run_at = ?", "run_count = run_count + 1", "updated_at = ?"]
+    values: list[Any] = [run_at, _now()]
+    if status is not None:
+        sets.append("status = ?")
+        values.append(status)
+    if next_run_at is not None:
+        sets.append("next_run_at = ?")
+        values.append(next_run_at)
+    values.append(automation_id)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            f"UPDATE automations SET {', '.join(sets)} WHERE id = ?", values
+        )
+        await db.commit()
+
+
+async def insert_automation_run(
+    path: str,
+    run_id: str,
+    automation_id: str,
+    *,
+    trigger_type: str = "schedule",
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO automation_runs "
+            "(id, automation_id, trigger_type, started_at, status) "
+            "VALUES (?, ?, ?, ?, 'running')",
+            (run_id, automation_id, trigger_type, now),
+        )
+        await db.commit()
+
+
+async def finish_automation_run(
+    path: str,
+    run_id: str,
+    *,
+    status: str,
+    task_id: str = "",
+    output: str = "",
+    error: str = "",
+) -> None:
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE automation_runs SET finished_at = ?, status = ?, "
+            "task_id = ?, output = ?, error = ? WHERE id = ?",
+            (_now(), status, task_id, output, error, run_id),
+        )
+        await db.commit()
+
+
+async def list_automation_runs(path: str, automation_id: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM automation_runs WHERE automation_id = ? "
+            "ORDER BY started_at DESC",
+            (automation_id,),
+        )
+        rows = await cur.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def get_automation_run(path: str, run_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM automation_runs WHERE id = ?", (run_id,)
+        )
+        row = await cur.fetchone()
+    return _row_to_dict(row) if row else None

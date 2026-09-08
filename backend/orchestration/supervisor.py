@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Awaitable, Callable
 
@@ -17,7 +18,6 @@ from backend.orchestration.graph import default_checkpoint_path
 from backend.orchestration.planner import (
     parse_plan,
     plan_to_dict,
-    plan_to_json,
     plan_with_llm,
 )
 from backend.tools.executor import ToolExecutor, build_default_executor
@@ -148,23 +148,33 @@ class Supervisor:
         raw = await self.planner(task["goal"])
         plan = parse_plan(raw)
 
+        # subtasks.id 为全局主键：LLM 生成的 plan id 无命名空间，多任务并发会撞 id，
+        # 统一映射为 {task_id}-{id}，depends_on 同步映射（与工作流模板实例化一致）。
         await db.delete_subtasks(self.db_path, task_id)  # 重规划时清旧计划
+        id_map = {s.id: f"{task_id}-{s.id}" for s in plan}
         for position, sub in enumerate(plan):
             await db.insert_subtask(
                 self.db_path,
-                sub.id,
+                id_map[sub.id],
                 task_id,
                 sub.title,
                 sub.description,
-                sub.depends_on,
+                [id_map[d] for d in sub.depends_on],
                 sub.tool,
                 sub.tool_args,
                 position,
             )
+        tasks = plan_to_dict(plan)["tasks"]
+        for t in tasks:
+            t["id"] = id_map[t["id"]]
+            t["depends_on"] = [id_map[d] for d in t["depends_on"]]
         await db.update_task_status(
-            self.db_path, task_id, "PLANNED", plan_json=plan_to_json(plan)
+            self.db_path,
+            task_id,
+            "PLANNED",
+            plan_json=json.dumps({"tasks": tasks}, ensure_ascii=False),
         )
-        return plan_to_dict(plan)
+        return {"tasks": tasks}
 
     async def approve(self, task_id: str) -> dict:
         """授权：仅允许 PLANNED 状态，进入 APPROVED 并启动后台执行。"""

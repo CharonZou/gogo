@@ -95,7 +95,8 @@ async def test_full_lifecycle(tmp_supervisor: Supervisor) -> None:
     assert created["status"] == "PENDING"
 
     plan = await tmp_supervisor.plan(task_id)
-    assert [t["id"] for t in plan["tasks"]] == ["t1", "t2"]
+    # subtask id 映射为 {task_id}-{plan_id}（全局主键防并发冲突）
+    assert [t["id"] for t in plan["tasks"]] == [f"{task_id}-t1", f"{task_id}-t2"]
 
     st = await tmp_supervisor.status(task_id)
     assert st["status"] == "PLANNED"
@@ -108,9 +109,9 @@ async def test_full_lifecycle(tmp_supervisor: Supervisor) -> None:
     st = await tmp_supervisor.status(task_id)
     assert st["status"] == "DONE"
     statuses = {s["id"]: s["status"] for s in st["subtasks"]}
-    assert statuses == {"t1": "DONE", "t2": "DONE"}
+    assert statuses == {f"{task_id}-t1": "DONE", f"{task_id}-t2": "DONE"}
     # t2 的 bash 输出已写入结果
-    t2 = next(s for s in st["subtasks"] if s["id"] == "t2")
+    t2 = next(s for s in st["subtasks"] if s["id"] == f"{task_id}-t2")
     assert "report-done" in t2["result"]
 
 

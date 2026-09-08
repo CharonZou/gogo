@@ -84,3 +84,21 @@ class KBSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, description="检索词 / 问题")
     k: int = Field(default=5, ge=1, le=50, description="返回分块数")
     mode: str = Field(default="hybrid", pattern="^(keyword|vector|hybrid)$")
+
+
+class AutomationCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="任务名称")
+    prompt: str = Field(..., min_length=1, description="每次执行发给 Agent 的指令")
+    schedule: str = Field(default="", description="5 字段 cron（分 时 日 月 星期）；once 任务可为空")
+    trigger_type: str = Field(default="cron", pattern="^(cron|once)$")
+    thread_mode: str = Field(default="fresh", pattern="^(fresh|sticky)$")
+    max_duration_minutes: int = Field(default=30, ge=1, le=1440)
+
+
+class AutomationUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    prompt: str | None = None
+    schedule: str | None = None
+    status: str | None = Field(default=None, pattern="^(active|paused|completed)$")
+    thread_mode: str | None = Field(default=None, pattern="^(fresh|sticky)$")
+    max_duration_minutes: int | None = Field(default=None, ge=1, le=1440)

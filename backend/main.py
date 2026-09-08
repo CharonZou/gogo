@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.agents.manager import AgentManager
 from backend.assistant.service import AssistantService
+from backend.automations.manager import AutomationManager
 from backend.core import db
 from backend.core.config import get_settings
 from backend.core.schemas import (
@@ -22,6 +23,8 @@ from backend.core.schemas import (
     AgentUpdate,
     AssignRequest,
     AssistantMessage,
+    AutomationCreate,
+    AutomationUpdate,
     ChatRequest,
     KBImportRequest,
     KBSearchRequest,
@@ -33,6 +36,7 @@ from backend.core.schemas import (
 from backend.kb.manager import KBManager
 from backend.llm.client import LLMNotConfiguredError
 from backend.orchestration.supervisor import Supervisor
+from backend.scheduler.scheduler import AutomationScheduler
 from backend.workflows.manager import WorkflowManager
 
 settings = get_settings()
@@ -40,13 +44,18 @@ supervisor = Supervisor()
 kb_manager = KBManager()
 agent_manager = AgentManager(kb_manager=kb_manager)
 workflow_manager = WorkflowManager()
+automation_manager = AutomationManager(supervisor=supervisor)
+automation_scheduler = AutomationScheduler(automation_manager)
 assistant = AssistantService(supervisor, agent_manager)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     await db.init_db()
+    if settings.automation_scheduler_enabled:
+        automation_scheduler.start()
     yield
+    await automation_scheduler.stop()
 
 
 app = FastAPI(
@@ -354,6 +363,93 @@ async def kb_search(payload: KBSearchRequest) -> list[dict]:
     """知识库检索：keyword / vector / hybrid。"""
     try:
         return await kb_manager.search(payload.query, k=payload.k, mode=payload.mode)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/automations")
+async def create_automation(payload: AutomationCreate) -> dict:
+    """创建自动化任务（cron 到点 / once 一次性）。"""
+    try:
+        return await automation_manager.create(
+            payload.name,
+            payload.prompt,
+            payload.schedule,
+            trigger_type=payload.trigger_type,
+            thread_mode=payload.thread_mode,
+            max_duration_minutes=payload.max_duration_minutes,
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/automations")
+async def list_automations() -> list[dict]:
+    """自动化任务列表。"""
+    return await automation_manager.list()
+
+
+@app.get("/api/v1/automations/scheduler/status")
+async def automation_scheduler_status() -> dict:
+    """调度器状态（必须声明在 /{id} 之前）。"""
+    return {
+        "enabled": settings.automation_scheduler_enabled,
+        "running": automation_scheduler.running,
+        "active_count": automation_scheduler.active_count,
+        "tick_seconds": settings.automation_tick_seconds,
+        "max_concurrent": settings.automation_max_concurrent,
+    }
+
+
+@app.get("/api/v1/automations/{automation_id}")
+async def get_automation(automation_id: str) -> dict:
+    """自动化任务详情。"""
+    try:
+        return await automation_manager.get(automation_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.patch("/api/v1/automations/{automation_id}")
+async def update_automation(automation_id: str, payload: AutomationUpdate) -> dict:
+    """修改自动化（名称 / Prompt / 调度 / 状态）。"""
+    try:
+        return await automation_manager.update(
+            automation_id,
+            name=payload.name,
+            prompt=payload.prompt,
+            schedule=payload.schedule,
+            status=payload.status,
+            thread_mode=payload.thread_mode,
+            max_duration_minutes=payload.max_duration_minutes,
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/automations/{automation_id}")
+async def delete_automation(automation_id: str) -> dict:
+    """删除自动化及其执行历史。"""
+    try:
+        return await automation_manager.delete(automation_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/automations/{automation_id}/trigger")
+async def trigger_automation(automation_id: str) -> dict:
+    """手动触发一次（不改调度）。"""
+    try:
+        return await automation_manager.trigger(automation_id, manual=True)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/automations/{automation_id}/runs")
+async def automation_runs(automation_id: str) -> list[dict]:
+    """执行历史。"""
+    try:
+        return await automation_manager.runs(automation_id)
     except Exception as exc:
         raise _http_error(exc) from exc
 

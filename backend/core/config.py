@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     kb_chunk_overlap: int = 80  # 相邻块重叠字符数
     kb_search_top_k: int = 5  # 员工问答默认注入条数
 
+    # 自动化调度（对应 ROCHEFLOW_AUTOMATION_*）
+    automation_scheduler_enabled: bool = True  # 总开关，0/false 关闭
+    automation_tick_seconds: int = 30  # 扫描间隔
+    automation_max_concurrent: int = 2  # 同时执行上限
+
     # 执行引擎
     max_concurrency: int = 2
     max_retries: int = 1

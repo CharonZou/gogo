@@ -105,7 +105,9 @@ async def test_resume_skips_done_subtask(tmp_path) -> None:
     # 模拟中断前 t1 已完成落库（DB 状态 DONE），t2 尚未执行
     from backend.core import db
 
-    await db.update_subtask(str(tmp_path / "db.sqlite"), "t1", status="DONE")
+    await db.update_subtask(
+        str(tmp_path / "db.sqlite"), f"{task_id}-t1", status="DONE"
+    )
 
     await sv.approve(task_id)
     result = await sv.run(task_id)
@@ -114,4 +116,4 @@ async def test_resume_skips_done_subtask(tmp_path) -> None:
     assert calls == ["noop_b"]  # t1 未重跑
     st = await sv.status(task_id)
     statuses = {s["id"]: s["status"] for s in st["subtasks"]}
-    assert statuses == {"t1": "DONE", "t2": "DONE"}
+    assert statuses == {f"{task_id}-t1": "DONE", f"{task_id}-t2": "DONE"}
