@@ -14,11 +14,13 @@ from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.agents.manager import AgentManager
+from backend.assistant.service import AssistantService
 from backend.core import db
 from backend.core.config import get_settings
 from backend.core.schemas import (
     AgentCreate,
     AgentUpdate,
+    AssistantMessage,
     AssignRequest,
     ChatRequest,
     TaskCreate,
@@ -30,6 +32,7 @@ from backend.orchestration.supervisor import Supervisor
 settings = get_settings()
 supervisor = Supervisor()
 agent_manager = AgentManager()
+assistant = AssistantService(supervisor, agent_manager)
 
 
 @asynccontextmanager
@@ -40,7 +43,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="RocheFlow Agent Engine",
-    version="0.3.0",
+    version="0.4.0",
     description="无头智能体引擎：编排 / 沙箱 / 记忆 / 技能 / MCP / 调度",
     lifespan=lifespan,
 )
@@ -67,7 +70,16 @@ def _http_error(exc: Exception) -> HTTPException:
 @app.get("/health")
 async def health() -> dict:
     """存活探针。"""
-    return {"status": "ok", "service": "rocheflow", "version": "0.3.0"}
+    return {"status": "ok", "service": "rocheflow", "version": "0.4.0"}
+
+
+@app.post("/api/v1/assistant/message")
+async def assistant_message(payload: AssistantMessage) -> dict:
+    """小秘书小R：自然语言 → 意图路由 → 创建内容。"""
+    try:
+        return await assistant.handle(payload.message)
+    except Exception as exc:  # noqa: BLE001
+        raise _http_error(exc) from exc
 
 
 @app.post("/api/v1/tasks")

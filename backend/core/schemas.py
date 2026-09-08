@@ -45,3 +45,7 @@ class AgentUpdate(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., description="发给员工的消息")
+
+
+class AssistantMessage(BaseModel):
+    message: str = Field(..., description="自然语言指令，如「帮我记一条待办」")

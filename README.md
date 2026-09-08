@@ -91,12 +91,21 @@ curl -X POST localhost:8031/api/v1/tasks/<task_id>/assign -H "Content-Type: appl
 curl -X POST localhost:8031/api/v1/tasks/<task_id>/complete
 ```
 
+**小秘书小R**（P1.3，自然语言创建，会真实调用 LLM）：
+
+```bash
+curl -X POST localhost:8031/api/v1/assistant/message -H "Content-Type: application/json" \
+  -d '{"message":"帮我记一条待办：买牛奶"}'
+# → {"message":"已帮你记好待办：买牛奶","created":{"module":"task","id":"...","page":"/tasks/..."},"data":{...}}
+```
+
 ## 目录结构
 
 ```
 backend/
 ├── main.py              # FastAPI 入口（HTTP + WebSocket 本地 RPC）
 ├── core/                # 配置 / schema
+├── assistant/           # 小秘书小R（自然语言 → 意图路由）
 ├── agents/              # 智能体员工（雇佣 / 上下班 / 对话）
 ├── orchestration/       # Plan→Execute→Verify 状态机 + networkx 计划 DAG + Supervisor
 ├── sandbox/             # 沙箱抽象（本地 / Docker / K8s）
