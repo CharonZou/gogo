@@ -23,18 +23,22 @@ from backend.core.schemas import (
     AssignRequest,
     AssistantMessage,
     ChatRequest,
+    KBImportRequest,
+    KBSearchRequest,
     TaskCreate,
     TaskUpdate,
     WorkflowCreate,
     WorkflowUpdate,
 )
+from backend.kb.manager import KBManager
 from backend.llm.client import LLMNotConfiguredError
 from backend.orchestration.supervisor import Supervisor
 from backend.workflows.manager import WorkflowManager
 
 settings = get_settings()
 supervisor = Supervisor()
-agent_manager = AgentManager()
+kb_manager = KBManager()
+agent_manager = AgentManager(kb_manager=kb_manager)
 workflow_manager = WorkflowManager()
 assistant = AssistantService(supervisor, agent_manager)
 
@@ -302,6 +306,54 @@ async def run_workflow(workflow_id: str) -> dict:
     """实例化：创建任务 + 步骤落库（PLANNED），随后可 approve 执行。"""
     try:
         return await workflow_manager.run(workflow_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/kb/import")
+async def kb_import(payload: KBImportRequest) -> dict:
+    """知识库导入：content 或本地文件路径 → 分块 + 嵌入 + 落库。"""
+    try:
+        if payload.content is not None:
+            if not payload.title:
+                raise ValueError("content 模式必须提供 title")
+            return await kb_manager.import_text(payload.title, payload.content)
+        if payload.path:
+            return await kb_manager.import_file(payload.path, title=payload.title)
+        raise ValueError("content 与 path 至少提供一个")
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.get("/api/v1/kb/docs")
+async def kb_list_docs() -> list[dict]:
+    """知识文档列表（含分块数）。"""
+    return await kb_manager.list()
+
+
+@app.get("/api/v1/kb/docs/{doc_id}")
+async def kb_get_doc(doc_id: str) -> dict:
+    """文档详情 + 分块明细。"""
+    try:
+        return {"doc": await kb_manager.get(doc_id), "chunks": await kb_manager.chunks(doc_id)}
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/kb/docs/{doc_id}")
+async def kb_delete_doc(doc_id: str) -> dict:
+    """删除文档及其分块。"""
+    try:
+        return await kb_manager.delete(doc_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/kb/search")
+async def kb_search(payload: KBSearchRequest) -> list[dict]:
+    """知识库检索：keyword / vector / hybrid。"""
+    try:
+        return await kb_manager.search(payload.query, k=payload.k, mode=payload.mode)
     except Exception as exc:
         raise _http_error(exc) from exc
 

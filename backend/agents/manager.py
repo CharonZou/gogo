@@ -1,6 +1,7 @@
 """智能体员工管理：雇佣 / 列表 / 修改 / 上下班 / 直接对话。
 
 员工 = 配置化的 AI 同事：姓名 + 岗位 + SOUL 人设 + 模型 + 工具白名单 + 上班时间。
+可选注入知识库检索（kb_manager 非空时，回答前先检索相关资料）。
 """
 
 from __future__ import annotations
@@ -17,9 +18,11 @@ class AgentManager:
         self,
         db_path: str | None = None,
         llm: LLMClient | None = None,
+        kb_manager=None,
     ) -> None:
         self.db_path = db_path or db.get_db_path()
         self.llm = llm or LLMClient()
+        self.kb_manager = kb_manager
 
     async def _ensure_db(self) -> None:
         await db.ensure_initialized(self.db_path)
@@ -80,7 +83,7 @@ class AgentManager:
     # ---------- 对话 ----------
 
     async def chat(self, agent_id: str, message: str) -> dict:
-        """直接对话：员工基于人设回答。"""
+        """直接对话：员工基于人设回答；已注入知识库时先检索相关资料。"""
         if not message or not message.strip():
             raise ValueError("消息不能为空")
         agent = await self.get(agent_id)
@@ -92,6 +95,15 @@ class AgentManager:
             system += f"\n人设：{agent['soul']}"
         system += "\n请用中文简洁、友好地回应用户。"
 
+        if self.kb_manager is not None:
+            hits = await self._kb_hits(message)
+            if hits:
+                ctx = "\n\n".join(f"[{h['doc_title']}] {h['content']}" for h in hits)
+                system += (
+                    "\n\n以下是从知识库检索到的相关资料，回答时请优先基于这些材料，"
+                    "并注明出处：\n" + ctx
+                )
+
         reply = await self.llm.chat_text(
             [
                 {"role": "system", "content": system},
@@ -99,3 +111,12 @@ class AgentManager:
             ]
         )
         return {"agent_id": agent_id, "name": agent["name"], "reply": reply}
+
+    async def _kb_hits(self, message: str, k: int | None = None) -> list[dict]:
+        """知识库检索（失败不阻断对话）。"""
+        try:
+            return await self.kb_manager.search(
+                message, k=k or get_settings().kb_search_top_k
+            )
+        except Exception:  # noqa: BLE001  # 检索失败降级为纯人设回答
+            return []

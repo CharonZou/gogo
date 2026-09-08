@@ -72,3 +72,15 @@ class WorkflowUpdate(BaseModel):
     description: str | None = None
     steps: list[WorkflowStep] | None = Field(default=None, min_length=1)
     status: str | None = Field(default=None, pattern="^(draft|active|archived)$")
+
+
+class KBImportRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=200, description="文档标题（content 模式必填；path 模式缺省取文件名）")
+    content: str | None = Field(default=None, description="文档纯文本内容（与 path 二选一）")
+    path: str | None = Field(default=None, description="本地 .md/.txt 文件路径（与 content 二选一）")
+
+
+class KBSearchRequest(BaseModel):
+    query: str = Field(..., min_length=1, description="检索词 / 问题")
+    k: int = Field(default=5, ge=1, le=50, description="返回分块数")
+    mode: str = Field(default="hybrid", pattern="^(keyword|vector|hybrid)$")

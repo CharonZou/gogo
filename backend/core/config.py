@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_model: str = "deepseek-chat"
 
+    # 知识库
+    kb_embedder: str = "hash"  # hash=离线确定性嵌入 | llm=OpenAI 兼容 /embeddings
+    llm_embed_model: str = ""
+    kb_chunk_size: int = 800  # 分块目标字符数
+    kb_chunk_overlap: int = 80  # 相邻块重叠字符数
+    kb_search_top_k: int = 5  # 员工问答默认注入条数
+
     # 执行引擎
     max_concurrency: int = 2
     max_retries: int = 1

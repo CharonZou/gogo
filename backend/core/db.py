@@ -77,6 +77,29 @@ CREATE TABLE IF NOT EXISTS workflows (
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS kb_docs (
+  id          TEXT PRIMARY KEY,
+  title       TEXT NOT NULL,
+  source      TEXT NOT NULL DEFAULT 'upload',
+  path        TEXT NOT NULL DEFAULT '',
+  status      TEXT NOT NULL DEFAULT 'imported',
+  chunk_count INTEGER NOT NULL DEFAULT 0,
+  meta_json   TEXT NOT NULL DEFAULT '{}',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS kb_chunks (
+  id          TEXT PRIMARY KEY,
+  doc_id      TEXT NOT NULL,
+  position    INTEGER NOT NULL,
+  content     TEXT NOT NULL,
+  embedding   TEXT NOT NULL DEFAULT '[]',
+  token_count INTEGER NOT NULL DEFAULT 0,
+  FOREIGN KEY (doc_id) REFERENCES kb_docs(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_kb_chunks_doc ON kb_chunks(doc_id);
 """
 
 # tasks 扩展列（旧库迁移用；新库直接建全）
@@ -553,3 +576,179 @@ async def increment_workflow_run_count(path: str, workflow_id: str) -> None:
             (now, workflow_id),
         )
         await db.commit()
+
+
+# ---------- 知识库（kb_docs / kb_chunks） ----------
+
+async def insert_kb_doc(
+    path: str,
+    doc_id: str,
+    title: str,
+    *,
+    source: str = "upload",
+    rel_path: str = "",
+    meta: dict | None = None,
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO kb_docs "
+            "(id, title, source, path, status, chunk_count, meta_json, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, 'imported', 0, ?, ?, ?)",
+            (
+                doc_id,
+                title,
+                source,
+                rel_path,
+                json.dumps(meta or {}, ensure_ascii=False),
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_kb_doc(path: str, doc_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM kb_docs WHERE id = ?", (doc_id,))
+        row = await cur.fetchone()
+    if row is None:
+        return None
+    d = _row_to_dict(row)
+    try:
+        d["meta"] = json.loads(d.pop("meta_json") or "{}")
+    except json.JSONDecodeError:
+        d["meta"] = {}
+    return d
+
+
+async def list_kb_docs(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM kb_docs ORDER BY created_at DESC"
+        )
+        rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        d = _row_to_dict(r)
+        try:
+            d["meta"] = json.loads(d.pop("meta_json") or "{}")
+        except json.JSONDecodeError:
+            d["meta"] = {}
+        out.append(d)
+    return out
+
+
+async def delete_kb_doc(path: str, doc_id: str) -> bool:
+    async with aiosqlite.connect(path) as db:
+        await db.execute("DELETE FROM kb_chunks WHERE doc_id = ?", (doc_id,))
+        cur = await db.execute("DELETE FROM kb_docs WHERE id = ?", (doc_id,))
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def insert_kb_chunks(path: str, chunks: list[dict]) -> None:
+    """批量落库分块：{id, doc_id, position, content, embedding, token_count}。"""
+    async with aiosqlite.connect(path) as db:
+        await db.executemany(
+            "INSERT INTO kb_chunks "
+            "(id, doc_id, position, content, embedding, token_count) "
+            "VALUES (:id, :doc_id, :position, :content, :embedding, :token_count)",
+            [
+                {
+                    "id": c["id"],
+                    "doc_id": c["doc_id"],
+                    "position": c["position"],
+                    "content": c["content"],
+                    "embedding": json.dumps(c.get("embedding", []), ensure_ascii=False),
+                    "token_count": c.get("token_count", 0),
+                }
+                for c in chunks
+            ],
+        )
+        await db.execute(
+            "UPDATE kb_docs SET chunk_count = ?, updated_at = ? WHERE id = ?",
+            (len(chunks), _now(), chunks[0]["doc_id"] if chunks else ""),
+        )
+        await db.commit()
+
+
+async def list_kb_chunks_by_doc(path: str, doc_id: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT id, doc_id, position, content, token_count "
+            "FROM kb_chunks WHERE doc_id = ? ORDER BY position",
+            (doc_id,),
+        )
+        rows = await cur.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def list_all_kb_chunks(path: str) -> list[dict]:
+    """全量分块（含 embedding，供向量检索在 Python 端算余弦）。"""
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT c.id AS chunk_id, c.doc_id, c.position, c.content, c.embedding, "
+            "d.title AS doc_title, d.source AS doc_source "
+            "FROM kb_chunks c JOIN kb_docs d ON d.id = c.doc_id "
+            "ORDER BY c.doc_id, c.position"
+        )
+        rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        d = _row_to_dict(r)
+        try:
+            d["embedding"] = json.loads(d["embedding"] or "[]")
+        except json.JSONDecodeError:
+            d["embedding"] = []
+        out.append(d)
+    return out
+
+
+async def search_kb_keyword(path: str, query: str, limit: int = 5) -> list[dict]:
+    """全文 LIKE 检索：content 命中任一查询词即返回，按命中词数排序。"""
+    terms = [t for t in _tokenize(query) if t]
+    if not terms:
+        return []
+    placeholders = []
+    params: list[Any] = []
+    for term in terms:
+        placeholders.append("c.content LIKE ?")
+        params.append(f"%{term}%")
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT c.id AS chunk_id, c.doc_id, c.position, c.content, "
+            "d.title AS doc_title, d.source AS doc_source "
+            "FROM kb_chunks c JOIN kb_docs d ON d.id = c.doc_id "
+            f"WHERE {' OR '.join(placeholders)} "
+            "ORDER BY c.doc_id, c.position LIMIT ?",
+            (*params, limit),
+        )
+        rows = await cur.fetchall()
+    out = []
+    for r in rows:
+        d = _row_to_dict(r)
+        hits = sum(1 for t in terms if t in d["content"])
+        d["score"] = hits / len(terms)
+        out.append(d)
+    return out
+
+
+def _tokenize(text: str) -> list[str]:
+    """查询词切分：中文按字符 bigram，英文/数字按词。"""
+    import re
+
+    tokens: list[str] = []
+    for word in re.findall(r"[a-zA-Z0-9_]+", text):
+        tokens.append(word.lower())
+    cjk = re.findall(r"[\u4e00-\u9fff]", text)
+    if len(cjk) >= 2:
+        tokens.extend("".join(cjk[i : i + 2]) for i in range(len(cjk) - 1))
+    elif len(cjk) == 1:
+        tokens.append(cjk[0])
+    return tokens
