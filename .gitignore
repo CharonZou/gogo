@@ -26,3 +26,6 @@ Thumbs.db
 
 # logs
 *.log
+
+# runtime data (本地运行时数据库 / 沙箱)
+data/
