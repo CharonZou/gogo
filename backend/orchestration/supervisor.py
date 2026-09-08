@@ -8,14 +8,13 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from backend.core import db
 from backend.core.config import get_settings
 from backend.llm.client import LLMClient
 from backend.orchestration.executor import execute_dag
+from backend.orchestration.graph import default_checkpoint_path
 from backend.orchestration.planner import (
-    PlanTask,
     parse_plan,
     plan_to_dict,
     plan_to_json,
@@ -38,6 +37,7 @@ class Supervisor:
         *,
         max_concurrency: int | None = None,
         max_retries: int | None = None,
+        checkpoint_path: str | None = None,
     ) -> None:
         settings = get_settings()
         self.db_path = db_path or db.get_db_path()
@@ -46,6 +46,7 @@ class Supervisor:
         self.tools = tools or build_default_executor()
         self.max_concurrency = max_concurrency or settings.max_concurrency
         self.max_retries = max_retries if max_retries is not None else settings.max_retries
+        self.checkpoint_path = checkpoint_path or default_checkpoint_path(self.db_path)
 
     async def _ensure_db(self) -> None:
         """惰性初始化 schema（幂等，按路径缓存）。"""
@@ -190,6 +191,7 @@ class Supervisor:
             self.tools,
             max_concurrency=self.max_concurrency,
             max_retries=self.max_retries,
+            checkpoint_path=self.checkpoint_path,
         )
         return {"task_id": task_id, "status": final}
 

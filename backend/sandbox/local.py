@@ -39,7 +39,7 @@ class LocalSandbox(Sandbox):
         )
         try:
             out, err = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             proc.kill()
             await proc.wait()
             raise TimeoutError(f"命令超时（>{timeout}s）：{command[:100]}") from exc

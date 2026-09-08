@@ -121,7 +121,7 @@ def _default_classifier(llm: LLMClient) -> Classifier:
             raise ValueError(f"小秘书无法识别意图：{intent}")
         params = raw.get("params") or {}
         if not isinstance(params, dict):
-            raise ValueError("小秘书返回的参数格式不正确")
+            raise TypeError("小秘书返回的参数格式不正确")
         return {"intent": intent, "params": params, "reason": raw.get("reason", "")}
 
     return _classify

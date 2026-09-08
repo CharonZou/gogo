@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -84,11 +84,11 @@ def get_db_path() -> str:
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def _row_to_dict(row: aiosqlite.Row) -> dict:
-    return {k: row[k] for k in row.keys()}
+    return {k: row[k] for k in row.keys()}  # noqa: SIM118 — sqlite3.Row 迭代产出值而非键
 
 
 async def init_db(path: str | None = None) -> None:

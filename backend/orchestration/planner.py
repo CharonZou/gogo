@@ -71,7 +71,7 @@ def parse_plan(payload: dict) -> list[PlanTask]:
     for t, task_id in zip(raw_tasks, ids):
         deps = t.get("depends_on") or []
         if not isinstance(deps, list):
-            raise ValueError(f"子任务 {task_id} 的 depends_on 必须是数组")
+            raise TypeError(f"子任务 {task_id} 的 depends_on 必须是数组")
         deps = [str(d) for d in deps]
         for dep in deps:
             if dep not in graph.nodes:
@@ -81,7 +81,7 @@ def parse_plan(payload: dict) -> list[PlanTask]:
         tool = str(t.get("tool", "noop") or "noop")
         tool_args = t.get("tool_args") or {}
         if not isinstance(tool_args, dict):
-            raise ValueError(f"子任务 {task_id} 的 tool_args 必须是对象")
+            raise TypeError(f"子任务 {task_id} 的 tool_args 必须是对象")
         plans.append(
             PlanTask(
                 id=task_id,

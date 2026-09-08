@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.llm.client import LLMNotConfiguredError
-from backend.main import app, supervisor
+from backend.main import app
 from backend.memory.store import MemoryStore
 from backend.orchestration.planner import parse_plan
 from backend.orchestration.supervisor import Supervisor

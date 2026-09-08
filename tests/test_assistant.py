@@ -7,7 +7,8 @@ from fastapi.testclient import TestClient
 
 from backend.agents.manager import AgentManager
 from backend.assistant.service import AssistantService
-from backend.main import app, assistant as app_assistant
+from backend.main import app
+from backend.main import assistant as app_assistant
 from backend.orchestration.supervisor import Supervisor
 
 

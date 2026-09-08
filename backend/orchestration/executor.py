@@ -1,14 +1,11 @@
-"""DAG 执行引擎：按依赖拓扑推进子任务，支持并行与重试。
+"""工具执行与 DAG 执行入口。
 
-语义：
-- 每轮取「依赖全部完成」的待执行子任务，最多 max_concurrency 个并行。
-- 子任务失败时按 max_retries 重试；重试耗尽后任务整体失败（fail-fast）。
-- 全部完成后任务进入 VERIFYING → DONE（MVP 简化验收为自动通过）。
+自 LangGraph 内核（graph.py）落地后，execute_dag 委托 run_graph，
+保留签名兼容（外部 / 旧测试仍可按原样调用）。
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 
 from backend.core import db
@@ -22,55 +19,19 @@ async def execute_dag(
     *,
     max_concurrency: int = 2,
     max_retries: int = 1,
+    checkpoint_path: str | None = None,
 ) -> str:
-    """执行任务的计划 DAG，返回最终状态 DONE / FAILED。"""
-    await db.update_task_status(path, task_id, "RUNNING")
+    """执行任务的计划 DAG（LangGraph 图 + checkpointer），返回最终状态。"""
+    from backend.orchestration.graph import run_graph  # 延迟导入避免循环
 
-    subtasks = await db.list_subtasks(path, task_id)
-    if not subtasks:
-        await db.update_task_status(path, task_id, "DONE")
-        return "DONE"
-
-    deps: dict[str, list[str]] = {
-        s["id"]: json.loads(s["depends_on"] or "[]") for s in subtasks
-    }
-    by_id = {s["id"]: s for s in subtasks}
-    done: set[str] = set()
-    failed = False
-
-    while len(done) < len(subtasks) and not failed:
-        ready = [
-            s
-            for s in subtasks
-            if s["id"] not in done
-            and s["status"] in ("PENDING", "FAILED")
-            and all(d in done for d in deps[s["id"]])
-        ]
-        if not ready:
-            failed = True  # 依赖缺失或成环，无法推进
-            break
-
-        batch = ready[:max_concurrency]
-        outcomes = await asyncio.gather(
-            *(
-                _run_subtask(path, s, tools, max_retries=max_retries)
-                for s in batch
-            )
-        )
-        for s, ok in zip(batch, outcomes):
-            if ok:
-                done.add(s["id"])
-            else:
-                failed = True
-                break
-
-    final = "DONE" if (not failed and len(done) == len(subtasks)) else "FAILED"
-    if final == "DONE":
-        await db.update_task_status(path, task_id, "VERIFYING")
-        await db.update_task_status(path, task_id, "DONE")
-    else:
-        await db.update_task_status(path, task_id, "FAILED")
-    return final
+    return await run_graph(
+        path,
+        task_id,
+        tools,
+        max_concurrency=max_concurrency,
+        max_retries=max_retries,
+        checkpoint_path=checkpoint_path,
+    )
 
 
 async def _run_subtask(
@@ -94,7 +55,7 @@ async def _run_subtask(
                 result=json.dumps(result, ensure_ascii=False, default=str),
             )
             return True
-        except Exception as exc:  # 工具失败，尝试重试
+        except Exception as exc:  # noqa: BLE001  # 工具失败，尝试重试
             last_error = f"第 {attempt + 1} 次失败：{exc}"
             if attempt < max_retries:
                 continue

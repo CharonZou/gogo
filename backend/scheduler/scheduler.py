@@ -5,7 +5,7 @@ TODO：定时自动化（cron 跑固定 Prompt）+ 智能体员工（值班/审�
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass

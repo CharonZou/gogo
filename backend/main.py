@@ -20,8 +20,8 @@ from backend.core.config import get_settings
 from backend.core.schemas import (
     AgentCreate,
     AgentUpdate,
-    AssistantMessage,
     AssignRequest,
+    AssistantMessage,
     ChatRequest,
     TaskCreate,
     TaskUpdate,
@@ -43,7 +43,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="RocheFlow Agent Engine",
-    version="0.4.0",
+    version="0.5.0",
     description="无头智能体引擎：编排 / 沙箱 / 记忆 / 技能 / MCP / 调度",
     lifespan=lifespan,
 )
@@ -70,7 +70,7 @@ def _http_error(exc: Exception) -> HTTPException:
 @app.get("/health")
 async def health() -> dict:
     """存活探针。"""
-    return {"status": "ok", "service": "rocheflow", "version": "0.4.0"}
+    return {"status": "ok", "service": "rocheflow", "version": "0.5.0"}
 
 
 @app.post("/api/v1/assistant/message")
@@ -78,7 +78,7 @@ async def assistant_message(payload: AssistantMessage) -> dict:
     """小秘书小R：自然语言 → 意图路由 → 创建内容。"""
     try:
         return await assistant.handle(payload.message)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -94,7 +94,7 @@ async def create_task(payload: TaskCreate) -> dict:
             due_at=payload.due_at,
             priority=payload.priority,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -115,7 +115,7 @@ async def update_task(task_id: str, payload: TaskUpdate) -> dict:
             due_at=payload.due_at,
             priority=payload.priority,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -124,7 +124,7 @@ async def assign_task(task_id: str, payload: AssignRequest) -> dict:
     """派给智能体员工。"""
     try:
         return await supervisor.assign_task(task_id, payload.agent_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -133,14 +133,8 @@ async def complete_task(task_id: str) -> dict:
     """标记完成。"""
     try:
         return await supervisor.complete_task(task_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
-
-
-@app.get("/api/v1/tasks")
-async def list_tasks() -> list[dict]:
-    """任务列表。"""
-    return await supervisor.list()
 
 
 @app.post("/api/v1/tasks/{task_id}/plan")
@@ -148,7 +142,7 @@ async def plan_task(task_id: str) -> dict:
     """规划：LLM 拆解目标为子任务 DAG 并落库（PLANNED）。"""
     try:
         return await supervisor.plan(task_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -157,7 +151,7 @@ async def approve_task(task_id: str) -> dict:
     """授权执行：后台运行计划 DAG。"""
     try:
         result = await supervisor.approve(task_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
     asyncio.create_task(supervisor.run(task_id))
     return result
@@ -168,7 +162,7 @@ async def task_status(task_id: str) -> dict:
     """任务状态 + 子任务明细。"""
     try:
         return await supervisor.status(task_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -184,7 +178,7 @@ async def hire_agent(payload: AgentCreate) -> dict:
             tool_whitelist=payload.tool_whitelist,
             schedule_json=payload.schedule_json,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -199,7 +193,7 @@ async def get_agent(agent_id: str) -> dict:
     """员工详情。"""
     try:
         return await agent_manager.get(agent_id)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -216,7 +210,7 @@ async def update_agent(agent_id: str, payload: AgentUpdate) -> dict:
             tool_whitelist=payload.tool_whitelist,
             schedule_json=payload.schedule_json,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -225,7 +219,7 @@ async def activate_agent(agent_id: str) -> dict:
     """员工上班。"""
     try:
         return await agent_manager.set_status(agent_id, "on_duty")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -234,7 +228,7 @@ async def deactivate_agent(agent_id: str) -> dict:
     """员工下班。"""
     try:
         return await agent_manager.set_status(agent_id, "off_duty")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
@@ -243,7 +237,7 @@ async def chat_agent(agent_id: str, payload: ChatRequest) -> dict:
     """直接对话：员工基于人设回答。"""
     try:
         return await agent_manager.chat(agent_id, payload.message)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         raise _http_error(exc) from exc
 
 
