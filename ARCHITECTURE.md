@@ -104,8 +104,8 @@ backend/
 
 | 能力 | DeerFlow 2.0 | EvoFlow（evovexai.com） | RocheFlow |
 |---|---|---|---|
-| 运行时形态 | LangGraph Harness | 桌面端 + 内嵌运行时 | **无头引擎（本地 RPC）** |
-| 编排 | Lead Agent + Middleware 链 | Supervisor → Plan DAG → 授权执行 | Supervisor → 状态机 + networkx DAG |
+| 运行时形态 | LangGraph Harness | 桌面端 + 内嵌 LangGraph 运行时 | **无头引擎（本地 RPC）** |
+| 编排 | Lead Agent + Middleware 链 | Supervisor → Plan DAG → 授权执行（LangGraph） | Supervisor → 状态机 + networkx DAG |
 | 沙箱 | Local / Docker / K8s | Local / Docker / K8s | Local / Docker / K8s |
 | 记忆 | memory.json 事实 | 资产中心 | SQLite + sqlite-vec 资产中心 |
 | 技能 | SKILL.md 渐进加载 | 技能市场 | SKILL.md 渐进加载 |
@@ -122,6 +122,20 @@ backend/
 
 ## 8. 设计决策记录（ADR）
 
-- **2026-09-08 · 自研状态机而非 LangGraph**：无头引擎需要最小依赖与完全可控的本地 RPC 面；编排核心逻辑简单直接，避免框架抽象带来不可控的黑盒行为。
+- **2026-09-08 · 自研状态机而非 LangGraph（ADR-001，复审见 ADR-004）**：无头引擎需要最小依赖与完全可控的本地 RPC 面；编排核心逻辑简单直接，避免框架抽象带来不可控的黑盒行为。
 - **2026-09-08 · networkx 做计划 DAG**：天然支持有向图分析、序列化与可视化，计划图即数据。
 - **2026-09-08 · SQLite 本地优先**：单机产品默认零部署依赖，aiosqlite 异步访问，sqlite-vec 提供向量能力；多用户场景再迁移 PostgreSQL + 独立向量库。
+- **2026-09-08 · ADR-004 · LangGraph 运行时 vs 自研状态机（EvoFlow 实测情报复审）**
+
+  情报：调研 EvoFlow（evovexai.com）官方仓库 README，其 Native Agent Runtime 本身即基于 **LangGraph** 构建（LangGraph Server :2024 + Lead Agent + 10 层 Middleware 链）——即参考对象实际采用了 ADR-001 中我们放弃的方案。
+
+  | 维度 | LangGraph（EvoFlow 所用） | 自研 asyncio 状态机 + networkx（当前决策） |
+  |---|---|---|
+  | 中间件链 | 10 层链现成（Sandbox / Summarization / PlanGuard / Memory…） | 自建，逐步补 |
+  | 断点续跑 | 内置 checkpoint，持久化现成 | 自建（SQLite 落库） |
+  | 并发 / 分支 | 图原生支持 | asyncio + networkx 自实现 |
+  | 依赖 | 引入 LangGraph / LangChain 框架栈 | 最小依赖（仅 networkx） |
+  | 可控性 | 框架黑盒行为需熟悉 | 完全可控、可单测 |
+  | 计划 DAG | 图结构表达 | networkx 原生（两者可共存） |
+
+  **结论**：维持 ADR-001 的自研决策（无头引擎以最小依赖、可控 RPC 面优先），标记为**待复审**——若 Phase 2 实现断点续跑 / 中间件链时成本超预期，切换 LangGraph 的成本仍可控（计划 DAG 与 networkx 兼容，Supervisor 接口可保留）。
