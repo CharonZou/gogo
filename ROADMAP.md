@@ -19,7 +19,7 @@
 | 1.1 | 任务中心扩展 | `tasks` 表加 kind/title/due_at/priority/assignee_id/done_at；PATCH /assign /complete API | ✅ 665fef2 |
 | 1.2 | 智能体员工 | `agents` 表 + 雇佣 / 上下班 / chat API | ✅ 665fef2 |
 | 1.3 | 小秘书意图路由 | `assistant/message`：LLM 分类意图 → 建任务 / 雇员工（先覆盖 2 种意图） | ✅ 9866dcc |
-| 1.4 | 工作流模板 | `workflows` 表 + steps_json + /{id}/run 实例化（复用 planner 结构） | ⏳ |
+| 1.4 | 工作流模板 | `workflows` 表 + steps_json + /{id}/run 实例化（复用 planner 结构） | ✅ b007df7 |
 | 1.5 | 编排内核切 LangGraph（v0.5.0） | StateGraph 执行图 + checkpointer 断点续跑；周边保留自研，门面不变 | ✅ 待推 |
 
 **出口标准**：每个 API 有测试；对小秘书说「帮我记一条待办」能真的建出任务。
