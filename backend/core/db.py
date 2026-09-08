@@ -130,7 +130,63 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   FOREIGN KEY (automation_id) REFERENCES automations(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_automation_runs_auto ON automation_runs(automation_id);
+
+CREATE TABLE IF NOT EXISTS apps (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  description   TEXT NOT NULL DEFAULT '',
+  goal          TEXT NOT NULL DEFAULT '',
+  steps_json    TEXT NOT NULL DEFAULT '[]',
+  params_json   TEXT NOT NULL DEFAULT '[]',
+  execution_mode TEXT NOT NULL DEFAULT 'auto',
+  status        TEXT NOT NULL DEFAULT 'draft',
+  run_count     INTEGER NOT NULL DEFAULT 0,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS app_runs (
+  id            TEXT PRIMARY KEY,
+  app_id        TEXT NOT NULL,
+  params_json   TEXT NOT NULL DEFAULT '{}',
+  status        TEXT NOT NULL DEFAULT 'running',
+  task_id       TEXT NOT NULL DEFAULT '',
+  started_at    TEXT NOT NULL,
+  finished_at   TEXT NOT NULL DEFAULT '',
+  error         TEXT NOT NULL DEFAULT '',
+  FOREIGN KEY (app_id) REFERENCES apps(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_app_runs_app ON app_runs(app_id);
+
+CREATE TABLE IF NOT EXISTS mcp_servers (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL UNIQUE,
+  type         TEXT NOT NULL DEFAULT 'stdio',
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  config_json  TEXT NOT NULL DEFAULT '{}',
+  description  TEXT NOT NULL DEFAULT '',
+  load_status  TEXT NOT NULL DEFAULT 'unloaded',
+  last_error   TEXT NOT NULL DEFAULT '',
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS skills (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL UNIQUE,
+  description  TEXT NOT NULL DEFAULT '',
+  instructions TEXT NOT NULL DEFAULT '',
+  source       TEXT NOT NULL DEFAULT 'custom',
+  enabled      INTEGER NOT NULL DEFAULT 1,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
 """
+
+# agents 扩展列（旧库迁移用；新库直接建全）
+AGENT_EXTRA_COLUMNS = {
+    "skill_whitelist": "TEXT NOT NULL DEFAULT '[]'",
+}
 
 # tasks 扩展列（旧库迁移用；新库直接建全）
 TASK_EXTRA_COLUMNS = {
@@ -162,7 +218,18 @@ async def init_db(path: str | None = None) -> None:
     async with aiosqlite.connect(path) as db:
         await db.executescript(SCHEMA)
         await _migrate_tasks(db)
+        await _migrate_agents(db)
         await db.commit()
+
+
+async def _migrate_agents(db: aiosqlite.Connection) -> None:
+    """为旧版 agents 表补齐新增列（幂等）。"""
+    cur = await db.execute("PRAGMA table_info(agents)")
+    rows = await cur.fetchall()
+    existing = {r[1] for r in rows}
+    for col, ddl in AGENT_EXTRA_COLUMNS.items():
+        if col not in existing:
+            await db.execute(f"ALTER TABLE agents ADD COLUMN {col} {ddl}")
 
 
 async def _migrate_tasks(db: aiosqlite.Connection) -> None:
@@ -310,6 +377,10 @@ def _agent_to_dict(row: aiosqlite.Row) -> dict:
         d["schedule_json"] = json.loads(d.get("schedule_json") or "{}")
     except json.JSONDecodeError:
         d["schedule_json"] = {}
+    try:
+        d["skill_whitelist"] = json.loads(d.get("skill_whitelist") or "[]")
+    except json.JSONDecodeError:
+        d["skill_whitelist"] = []
     return d
 
 
@@ -322,13 +393,15 @@ async def insert_agent(
     model: str,
     tool_whitelist: list[str],
     schedule_json: dict,
+    skill_whitelist: list[str] | None = None,
 ) -> None:
     now = _now()
     async with aiosqlite.connect(path) as db:
         await db.execute(
             "INSERT INTO agents "
-            "(id, name, role, soul, model, tool_whitelist, schedule_json, status, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 'off_duty', ?, ?)",
+            "(id, name, role, soul, model, tool_whitelist, schedule_json, "
+            " skill_whitelist, status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'off_duty', ?, ?)",
             (
                 agent_id,
                 name,
@@ -337,6 +410,7 @@ async def insert_agent(
                 model,
                 json.dumps(tool_whitelist, ensure_ascii=False),
                 json.dumps(schedule_json, ensure_ascii=False),
+                json.dumps(skill_whitelist or [], ensure_ascii=False),
                 now,
                 now,
             ),
@@ -370,6 +444,7 @@ async def update_agent(
     model: str | None = None,
     tool_whitelist: list[str] | None = None,
     schedule_json: dict | None = None,
+    skill_whitelist: list[str] | None = None,
 ) -> None:
     now = _now()
     sets = ["updated_at = ?"]
@@ -381,6 +456,7 @@ async def update_agent(
         ("model", model),
         ("tool_whitelist", tool_whitelist),
         ("schedule_json", schedule_json),
+        ("skill_whitelist", skill_whitelist),
     ):
         if val is not None:
             sets.append(f"{col} = ?")
@@ -965,3 +1041,316 @@ async def get_automation_run(path: str, run_id: str) -> dict | None:
         )
         row = await cur.fetchone()
     return _row_to_dict(row) if row else None
+
+# ---------- 应用中心（apps / app_runs） ----------
+
+def _app_to_dict(row: aiosqlite.Row) -> dict:
+    d = _row_to_dict(row)
+    for key, col in (("steps", "steps_json"), ("params", "params_json")):
+        try:
+            d[key] = json.loads(d.pop(col) or "[]")
+        except json.JSONDecodeError:
+            d[key] = []
+    return d
+
+
+def _app_run_to_dict(row: aiosqlite.Row) -> dict:
+    d = _row_to_dict(row)
+    try:
+        d["params"] = json.loads(d.pop("params_json") or "{}")
+    except json.JSONDecodeError:
+        d["params"] = {}
+    return d
+
+
+async def insert_app(
+    path: str,
+    app_id: str,
+    name: str,
+    description: str,
+    goal: str,
+    steps_json: str,
+    params_json: str,
+    execution_mode: str,
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO apps "
+            "(id, name, description, goal, steps_json, params_json, execution_mode, "
+            " status, run_count, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'draft', 0, ?, ?)",
+            (app_id, name, description, goal, steps_json, params_json, execution_mode, now, now),
+        )
+        await db.commit()
+
+
+async def get_app(path: str, app_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM apps WHERE id = ?", (app_id,))
+        row = await cur.fetchone()
+    return _app_to_dict(row) if row else None
+
+
+async def list_apps(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM apps ORDER BY created_at DESC")
+        rows = await cur.fetchall()
+    return [_app_to_dict(r) for r in rows]
+
+
+async def update_app(
+    path: str,
+    app_id: str,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    goal: str | None = None,
+    steps_json: str | None = None,
+    params_json: str | None = None,
+    execution_mode: str | None = None,
+    status: str | None = None,
+) -> None:
+    now = _now()
+    sets = ["updated_at = ?"]
+    values: list[Any] = [now]
+    for col, val in (
+        ("name", name),
+        ("description", description),
+        ("goal", goal),
+        ("steps_json", steps_json),
+        ("params_json", params_json),
+        ("execution_mode", execution_mode),
+        ("status", status),
+    ):
+        if val is not None:
+            sets.append(f"{col} = ?")
+            values.append(val)
+    values.append(app_id)
+    async with aiosqlite.connect(path) as db:
+        await db.execute(f"UPDATE apps SET {', '.join(sets)} WHERE id = ?", values)
+        await db.commit()
+
+
+async def delete_app(path: str, app_id: str) -> bool:
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute("DELETE FROM apps WHERE id = ?", (app_id,))
+        await db.commit()
+    return cur.rowcount > 0
+
+
+async def increment_app_run_count(path: str, app_id: str) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE apps SET run_count = run_count + 1, updated_at = ? WHERE id = ?",
+            (now, app_id),
+        )
+        await db.commit()
+
+
+async def insert_app_run(
+    path: str, run_id: str, app_id: str, params: dict, task_id: str = ""
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO app_runs "
+            "(id, app_id, params_json, status, task_id, started_at, finished_at, error) "
+            "VALUES (?, ?, ?, 'running', ?, ?, '', '')",
+            (run_id, app_id, json.dumps(params, ensure_ascii=False), task_id, now),
+        )
+        await db.commit()
+
+
+async def finish_app_run(
+    path: str, run_id: str, *, status: str, task_id: str = "", error: str = ""
+) -> None:
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE app_runs SET finished_at = ?, status = ?, task_id = ?, error = ? "
+            "WHERE id = ?",
+            (_now(), status, task_id, error, run_id),
+        )
+        await db.commit()
+
+
+async def list_app_runs(path: str, app_id: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM app_runs WHERE app_id = ? ORDER BY started_at DESC",
+            (app_id,),
+        )
+        rows = await cur.fetchall()
+    return [_app_run_to_dict(r) for r in rows]
+
+
+async def get_app_run(path: str, run_id: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM app_runs WHERE id = ?", (run_id,))
+        row = await cur.fetchone()
+    return _app_run_to_dict(row) if row else None
+
+
+# ---------- MCP 服务器（mcp_servers） ----------
+
+def _mcp_to_dict(row: aiosqlite.Row) -> dict:
+    d = _row_to_dict(row)
+    try:
+        d["config"] = json.loads(d.pop("config_json") or "{}")
+    except json.JSONDecodeError:
+        d["config"] = {}
+    return d
+
+
+async def upsert_mcp_server(
+    path: str,
+    server_id: str,
+    name: str,
+    mcp_type: str,
+    config: dict,
+    *,
+    enabled: bool = True,
+    description: str = "",
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO mcp_servers "
+            "(id, name, type, enabled, config_json, description, load_status, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'unloaded', ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET "
+            "type = excluded.type, enabled = excluded.enabled, "
+            "config_json = excluded.config_json, description = excluded.description, "
+            "load_status = 'unloaded', updated_at = excluded.updated_at",
+            (
+                server_id,
+                name,
+                mcp_type,
+                1 if enabled else 0,
+                json.dumps(config, ensure_ascii=False),
+                description,
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_mcp_server(path: str, name: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute(
+            "SELECT * FROM mcp_servers WHERE name = ?", (name,)
+        )
+        row = await cur.fetchone()
+    return _mcp_to_dict(row) if row else None
+
+
+async def list_mcp_servers(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM mcp_servers ORDER BY created_at DESC")
+        rows = await cur.fetchall()
+    return [_mcp_to_dict(r) for r in rows]
+
+
+async def set_mcp_enabled(path: str, name: str, enabled: bool) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE mcp_servers SET enabled = ?, load_status = 'unloaded', "
+            "last_error = '', updated_at = ? WHERE name = ?",
+            (1 if enabled else 0, now, name),
+        )
+        await db.commit()
+
+
+async def update_mcp_status(path: str, name: str, status: str, error: str = "") -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE mcp_servers SET load_status = ?, last_error = ?, updated_at = ? "
+            "WHERE name = ?",
+            (status, error, now, name),
+        )
+        await db.commit()
+
+
+async def delete_mcp_server(path: str, name: str) -> bool:
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute("DELETE FROM mcp_servers WHERE name = ?", (name,))
+        await db.commit()
+    return cur.rowcount > 0
+
+
+# ---------- 技能（skills） ----------
+
+async def upsert_skill(
+    path: str,
+    skill_id: str,
+    name: str,
+    description: str,
+    instructions: str,
+    *,
+    source: str = "custom",
+    enabled: bool = True,
+) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "INSERT INTO skills "
+            "(id, name, description, instructions, source, enabled, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET "
+            "description = excluded.description, instructions = excluded.instructions, "
+            "source = excluded.source, updated_at = excluded.updated_at",
+            (
+                skill_id,
+                name,
+                description,
+                instructions,
+                source,
+                1 if enabled else 0,
+                now,
+                now,
+            ),
+        )
+        await db.commit()
+
+
+async def get_skill(path: str, name: str) -> dict | None:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM skills WHERE name = ?", (name,))
+        row = await cur.fetchone()
+    return _row_to_dict(row) if row else None
+
+
+async def list_skills(path: str) -> list[dict]:
+    async with aiosqlite.connect(path) as db:
+        db.row_factory = aiosqlite.Row
+        cur = await db.execute("SELECT * FROM skills ORDER BY name")
+        rows = await cur.fetchall()
+    return [_row_to_dict(r) for r in rows]
+
+
+async def set_skill_enabled(path: str, name: str, enabled: bool) -> None:
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE skills SET enabled = ?, updated_at = ? WHERE name = ?",
+            (1 if enabled else 0, now, name),
+        )
+        await db.commit()
+
+
+async def delete_skill(path: str, name: str) -> bool:
+    async with aiosqlite.connect(path) as db:
+        cur = await db.execute("DELETE FROM skills WHERE name = ?", (name,))
+        await db.commit()
+    return cur.rowcount > 0

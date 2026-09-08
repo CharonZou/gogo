@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import fnmatch
 import json
 
 from backend.core import db
@@ -21,7 +22,13 @@ async def execute_dag(
     max_retries: int = 1,
     checkpoint_path: str | None = None,
 ) -> str:
-    """执行任务的计划 DAG（LangGraph 图 + checkpointer），返回最终状态。"""
+    """执行任务的计划 DAG（LangGraph 图 + checkpointer），返回最终状态。
+
+    若任务已派给智能体员工且该员工配置了工具白名单，
+    非终态子任务使用白名单外工具的直接标记 FAILED（安全护栏）。
+    """
+    await _apply_agent_tool_whitelist(path, task_id)
+
     from backend.orchestration.graph import run_graph  # 延迟导入避免循环
 
     return await run_graph(
@@ -32,6 +39,34 @@ async def execute_dag(
         max_retries=max_retries,
         checkpoint_path=checkpoint_path,
     )
+
+
+async def _apply_agent_tool_whitelist(path: str, task_id: str) -> None:
+    """按任务 assignee 的工具白名单过滤未执行子任务（空白名单 = 不限制）。"""
+    task = await db.get_task(path, task_id)
+    if task is None or not task.get("assignee_id"):
+        return
+    agent = await db.get_agent(path, task["assignee_id"])
+    if agent is None:
+        return
+    whitelist: list[str] = agent.get("tool_whitelist") or []
+    if not whitelist:
+        return
+    for sub in await db.list_subtasks(path, task_id):
+        if sub["status"] in ("DONE", "FAILED"):
+            continue  # 终态不重判，保持既有结果
+        if not _tool_allowed(sub["tool"] or "noop", whitelist):
+            await db.update_subtask(
+                path,
+                sub["id"],
+                status="FAILED",
+                error=f"[whitelist] 工具「{sub['tool']}」不在该员工工具白名单内，已拒绝执行",
+            )
+
+
+def _tool_allowed(tool: str, whitelist: list[str]) -> bool:
+    """白名单匹配：支持精确名与 mcp__<server>__* 通配。"""
+    return any(fnmatch.fnmatch(tool, pattern) for pattern in whitelist)
 
 
 async def _run_subtask(

@@ -65,6 +65,13 @@ async def execute_node(state: RunState, config: RunnableConfig) -> dict:
     done: set[str] = set(state.get("done", []))
     done.update(s["id"] for s in subtasks if s["status"] == "DONE")
     failed: set[str] = set(state.get("failed", []))
+    # 白名单拒绝（[whitelist] 前缀）为硬性终态，不随 FAILED 重跑
+    failed.update(
+        s["id"]
+        for s in subtasks
+        if s["status"] == "FAILED"
+        and (s["error"] or "").startswith("[whitelist]")
+    )
 
     while len(done) < len(subtasks) and not failed:
         ready = [

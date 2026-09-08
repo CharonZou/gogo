@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     automation_tick_seconds: int = 30  # 扫描间隔
     automation_max_concurrent: int = 2  # 同时执行上限
 
+    # MCP（对应 ROCHEFLOW_MCP_*）
+    mcp_enabled: bool = True  # 总开关
+    mcp_connect_timeout: float = 15.0  # 连接/初始化超时（秒）
+    mcp_request_timeout: float = 60.0  # 单次工具调用超时（秒）
+    skills_public_dir: str = "skills/public"  # 内置技能目录（不存在则跳过）
+    skills_custom_dir: str = "skills/custom"  # 自定义技能目录
+
     # 执行引擎
     max_concurrency: int = 2
     max_retries: int = 1

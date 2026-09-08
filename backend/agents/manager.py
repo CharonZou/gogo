@@ -1,6 +1,6 @@
 """智能体员工管理：雇佣 / 列表 / 修改 / 上下班 / 直接对话。
 
-员工 = 配置化的 AI 同事：姓名 + 岗位 + SOUL 人设 + 模型 + 工具白名单 + 上班时间。
+员工 = 配置化的 AI 同事：姓名 + 岗位 + SOUL 人设 + 模型 + 工具白名单 + 技能白名单 + 上班时间。
 可选注入知识库检索（kb_manager 非空时，回答前先检索相关资料）。
 """
 
@@ -19,10 +19,12 @@ class AgentManager:
         db_path: str | None = None,
         llm: LLMClient | None = None,
         kb_manager=None,
+        skills_manager=None,
     ) -> None:
         self.db_path = db_path or db.get_db_path()
         self.llm = llm or LLMClient()
         self.kb_manager = kb_manager
+        self.skills_manager = skills_manager
 
     async def _ensure_db(self) -> None:
         await db.ensure_initialized(self.db_path)
@@ -37,6 +39,7 @@ class AgentManager:
         model: str | None = None,
         tool_whitelist: list[str] | None = None,
         schedule_json: dict | None = None,
+        skill_whitelist: list[str] | None = None,
     ) -> dict:
         """雇佣智能体员工（初始 off_duty）。"""
         if not name or not name.strip():
@@ -52,6 +55,7 @@ class AgentManager:
             model or get_settings().llm_model,
             tool_whitelist or [],
             schedule_json or {},
+            skill_whitelist or [],
         )
         return await self.get(agent_id)
 
@@ -104,6 +108,10 @@ class AgentManager:
                     "并注明出处：\n" + ctx
                 )
 
+        capabilities = await self._capabilities(agent)
+        if capabilities:
+            system += "\n\n你当前可用的能力：\n" + capabilities
+
         reply = await self.llm.chat_text(
             [
                 {"role": "system", "content": system},
@@ -111,6 +119,23 @@ class AgentManager:
             ]
         )
         return {"agent_id": agent_id, "name": agent["name"], "reply": reply}
+
+    async def _capabilities(self, agent: dict) -> str:
+        """员工能力注入：工具白名单（含 MCP 工具）+ 技能说明。"""
+        parts: list[str] = []
+        whitelist = agent.get("tool_whitelist") or []
+        if whitelist:
+            parts.append(
+                "工具（仅限以下白名单，未列出的工具不得使用）：\n"
+                + "\n".join(f"- {name}" for name in whitelist)
+            )
+        if self.skills_manager is not None:
+            skill_notes = await self.skills_manager.enabled_instructions(
+                agent.get("skill_whitelist") or []
+            )
+            if skill_notes:
+                parts.append("技能：\n" + "\n".join(f"- {note}" for note in skill_notes))
+        return "\n\n".join(parts)
 
     async def _kb_hits(self, message: str, k: int | None = None) -> list[dict]:
         """知识库检索（失败不阻断对话）。"""

@@ -32,6 +32,7 @@ class AgentCreate(BaseModel):
     model: str | None = Field(default=None, description="模型，缺省用全局配置")
     tool_whitelist: list[str] = Field(default_factory=list, description="工具白名单")
     schedule_json: dict = Field(default_factory=dict, description="上班时间配置")
+    skill_whitelist: list[str] = Field(default_factory=list, description="技能白名单")
 
 
 class AgentUpdate(BaseModel):
@@ -41,6 +42,7 @@ class AgentUpdate(BaseModel):
     model: str | None = None
     tool_whitelist: list[str] | None = None
     schedule_json: dict | None = None
+    skill_whitelist: list[str] | None = None
 
 
 class ChatRequest(BaseModel):
@@ -102,3 +104,56 @@ class AutomationUpdate(BaseModel):
     status: str | None = Field(default=None, pattern="^(active|paused|completed)$")
     thread_mode: str | None = Field(default=None, pattern="^(fresh|sticky)$")
     max_duration_minutes: int | None = Field(default=None, ge=1, le=1440)
+
+
+class AppParam(BaseModel):
+    name: str = Field(..., min_length=1, description="英文参数标识符")
+    label: str = Field(default="", description="展示名称")
+    required: bool = Field(default=False, description="是否必填")
+
+
+class AppCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="应用名称")
+    description: str = Field(default="", description="应用说明")
+    goal: str = Field(default="", description="工作流目标（LLM 拆解时使用）")
+    steps: list[WorkflowStep] = Field(..., min_length=1, description="步骤列表（DAG）")
+    params: list[AppParam] = Field(default_factory=list, description="运行参数定义")
+    execution_mode: str = Field(default="auto", pattern="^(auto|supervised)$")
+
+
+class AppUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    description: str | None = None
+    goal: str | None = None
+    steps: list[WorkflowStep] | None = Field(default=None, min_length=1)
+    params: list[AppParam] | None = None
+    execution_mode: str | None = Field(default=None, pattern="^(auto|supervised)$")
+    status: str | None = Field(default=None, pattern="^(draft|published|archived)$")
+
+
+class AppRunRequest(BaseModel):
+    params: dict = Field(default_factory=dict, description="运行参数（按 AppParam 定义）")
+
+
+class MCPServerUpsert(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="MCP 服务器名（工具前缀 mcp__<name>__）")
+    type: str = Field(default="stdio", pattern="^(stdio|sse|streamable-http)$")
+    config: dict = Field(default_factory=dict, description="连接配置（stdio: command/args/env；sse/streamable-http: url/headers）")
+    enabled: bool = Field(default=True, description="启用后立即注册工具")
+    description: str = Field(default="", description="功能描述")
+
+
+class MCPEnableRequest(BaseModel):
+    enabled: bool = Field(..., description="true=启用（触发连接注册）")
+
+
+class SkillUpsert(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="技能唯一标识")
+    description: str = Field(default="", description="一句话描述（注入 Agent 时展示）")
+    instructions: str = Field(default="", description="技能使用说明（SKILL.md 正文）")
+    source: str = Field(default="custom", pattern="^(public|custom)$")
+    enabled: bool = Field(default=True)
+
+
+class SkillEnableRequest(BaseModel):
+    enabled: bool = Field(..., description="true=启用")

@@ -26,6 +26,10 @@ class ToolExecutor:
     def register(self, spec: ToolSpec) -> None:
         self._tools[spec.name] = spec
 
+    def unregister(self, name: str) -> None:
+        """注销工具（MCP 禁用 / 热重载时使用）。"""
+        self._tools.pop(name, None)
+
     def has(self, name: str) -> bool:
         return name in self._tools
 

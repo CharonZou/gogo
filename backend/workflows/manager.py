@@ -11,6 +11,7 @@ import uuid
 
 from backend.core import db
 from backend.orchestration.planner import parse_plan, plan_to_dict
+from backend.workflows.instantiate import instantiate_steps, new_task_id
 
 _initialized_paths: set[str] = set()
 
@@ -113,35 +114,13 @@ class WorkflowManager:
         goal = f"【工作流】{wf['name']}"
         if wf["description"]:
             goal += f"：{wf['description']}"
-        task_id = uuid.uuid4().hex[:12]
-        await db.insert_task(
+        task_id = await instantiate_steps(
             self.db_path,
-            task_id,
-            goal,
-            "workflow",
-            kind="task",
+            new_task_id(),
+            steps,
+            goal=goal,
+            source="workflow",
             title=wf["name"],
-        )
-        # subtasks.id 为全局主键：用 {task_id}-{step_id} 复合 id 保证跨实例唯一，
-        # depends_on 同步映射到复合 id，依赖解析与执行器一致。
-        id_map = {s["id"]: f"{task_id}-{s['id']}" for s in steps}
-        for position, sub in enumerate(steps):
-            await db.insert_subtask(
-                self.db_path,
-                id_map[sub["id"]],
-                task_id,
-                sub["title"],
-                sub.get("description", ""),
-                [id_map[d] for d in sub.get("depends_on", [])],
-                sub.get("tool", "noop"),
-                sub.get("tool_args", {}),
-                position,
-            )
-        await db.update_task_status(
-            self.db_path,
-            task_id,
-            "PLANNED",
-            plan_json=json.dumps({"tasks": steps}, ensure_ascii=False),
         )
         await db.increment_workflow_run_count(self.db_path, workflow_id)
         return {
