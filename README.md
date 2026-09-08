@@ -88,4 +88,4 @@ backend/
 └── scheduler/           # 定时 / 值班调度
 ```
 
-详细设计见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+详细设计见 [ARCHITECTURE.md](ARCHITECTURE.md) · [API 与数据结构设计草稿](docs/api-design.md)。
