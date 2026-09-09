@@ -39,7 +39,7 @@
 | # | 内容 | 关键产出 |
 |---|---|---|
 | 3.1 | 值班闭环 | 员工按 schedule 上班 → 自动接任务 → 工作汇报（kind=report）进任务中心 | ✅ 827bd95 |
-| 3.2 | 实时与页面 | WebSocket 流式输出（LangGraph astream）；任务中心管理 API；时间旅行 / interrupt（approve 门改图内 human-in-the-loop） |
+| 3.2 | 实时与页面 | WebSocket 流式输出（LangGraph astream）；任务中心管理 API；时间旅行 / interrupt（approve 门改图内 human-in-the-loop） | ✅ 8f51310 |
 | 3.3 | 前端（对标 EvoPanel） | 任务中心 / 工作流画布 / 员工管理 / 知识库 / 自动化 / 应用市场 |
 | 3.4 | 多用户与权限 | 账号隔离、审批护栏 |
 
