@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority    TEXT NOT NULL DEFAULT 'medium',
   assignee_id TEXT,
   done_at     TEXT,
+  cancelled   INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL,
   updated_at  TEXT NOT NULL
 );
@@ -199,6 +200,7 @@ TASK_EXTRA_COLUMNS = {
     "priority": "TEXT NOT NULL DEFAULT 'medium'",
     "assignee_id": "TEXT",
     "done_at": "TEXT",
+    "cancelled": "INTEGER NOT NULL DEFAULT 0",
 }
 
 
@@ -290,14 +292,56 @@ async def get_task(path: str, task_id: str) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
-async def list_tasks(path: str, limit: int = 50) -> list[dict]:
+async def list_tasks(
+    path: str,
+    limit: int = 50,
+    *,
+    kind: str | None = None,
+    status: str | None = None,
+    assignee_id: str | None = None,
+    source: str | None = None,
+) -> list[dict]:
+    """任务列表（支持按类型 / 状态 / 指派员工 / 来源过滤）。"""
+    where: list[str] = []
+    params: list[Any] = []
+    for col, val in (
+        ("kind", kind),
+        ("status", status),
+        ("assignee_id", assignee_id),
+        ("source", source),
+    ):
+        if val is not None:
+            where.append(f"{col} = ?")
+            params.append(val)
+    sql = "SELECT * FROM tasks"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
     async with aiosqlite.connect(path) as db:
         db.row_factory = aiosqlite.Row
-        cur = await db.execute(
-            "SELECT * FROM tasks ORDER BY created_at DESC LIMIT ?", (limit,)
-        )
+        cur = await db.execute(sql, params)
         rows = await cur.fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+async def delete_task(path: str, task_id: str) -> None:
+    """删除任务及其子任务（级联，不可恢复）。"""
+    async with aiosqlite.connect(path) as db:
+        await db.execute("DELETE FROM subtasks WHERE task_id = ?", (task_id,))
+        await db.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        await db.commit()
+
+
+async def set_task_cancelled(path: str, task_id: str, cancelled: bool = True) -> None:
+    """取消标记：执行引擎每轮检查，cancelled 后不再推进并落 CANCELLED 终态。"""
+    now = _now()
+    async with aiosqlite.connect(path) as db:
+        await db.execute(
+            "UPDATE tasks SET cancelled = ?, updated_at = ? WHERE id = ?",
+            (1 if cancelled else 0, now, task_id),
+        )
+        await db.commit()
 
 
 async def list_agent_tasks(path: str, agent_id: str, statuses: list[str]) -> list[dict]:

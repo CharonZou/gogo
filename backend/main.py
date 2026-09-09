@@ -20,6 +20,7 @@ from backend.assistant.service import AssistantService
 from backend.automations.manager import AutomationManager
 from backend.core import db
 from backend.core.config import get_settings
+from backend.core.events import hub
 from backend.core.schemas import (
     AgentCreate,
     AgentUpdate,
@@ -35,6 +36,7 @@ from backend.core.schemas import (
     KBSearchRequest,
     MCPEnableRequest,
     MCPServerUpsert,
+    ResumeRequest,
     SkillEnableRequest,
     SkillUpsert,
     TaskCreate,
@@ -144,9 +146,24 @@ async def create_task(payload: TaskCreate) -> dict:
 
 
 @app.get("/api/v1/tasks")
-async def list_tasks() -> list[dict]:
-    """任务列表。"""
-    return await supervisor.list()
+async def list_tasks(
+    limit: int = 50,
+    kind: str | None = None,
+    status: str | None = None,
+    assignee_id: str | None = None,
+    source: str | None = None,
+) -> list[dict]:
+    """任务列表（可按类型 / 状态 / 指派员工 / 来源过滤）。"""
+    try:
+        return await supervisor.list(
+            limit=min(max(limit, 1), 200),
+            kind=kind,
+            status=status,
+            assignee_id=assignee_id,
+            source=source,
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
 
 
 @app.patch("/api/v1/tasks/{task_id}")
@@ -162,6 +179,48 @@ async def update_task(task_id: str, payload: TaskUpdate) -> dict:
         )
     except Exception as exc:
         raise _http_error(exc) from exc
+
+
+@app.delete("/api/v1/tasks/{task_id}")
+async def delete_task(task_id: str) -> dict:
+    """删除任务及其子任务（不可恢复）。"""
+    try:
+        return await supervisor.delete_task(task_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/cancel")
+async def cancel_task(task_id: str) -> dict:
+    """取消任务：未执行直接置 CANCELLED；执行中置取消标记，引擎下一轮停止。"""
+    try:
+        return await supervisor.cancel_task(task_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/rerun")
+async def rerun_task(task_id: str) -> dict:
+    """再跑一次：复用已绑定计划重建子任务并后台执行（无需重新规划）。"""
+    try:
+        return await supervisor.rerun_task(task_id)
+    except Exception as exc:
+        raise _http_error(exc) from exc
+
+
+@app.post("/api/v1/tasks/{task_id}/resume")
+async def resume_task(task_id: str, payload: ResumeRequest) -> dict:
+    """继续审批门挂起的任务：approve=true 放行，false 拒绝该子任务。"""
+    try:
+        result = await supervisor.resume(
+            task_id, {"approve": payload.approve}, stream_callback=hub.stream_callback(task_id)
+        )
+    except Exception as exc:
+        raise _http_error(exc) from exc
+    if result["status"] == "INTERRUPTED":
+        # 仍有下一个审批门：继续挂起，等下一轮 resume
+        pass
+    return result
 
 
 @app.post("/api/v1/tasks/{task_id}/assign")
@@ -193,13 +252,34 @@ async def plan_task(task_id: str) -> dict:
 
 @app.post("/api/v1/tasks/{task_id}/approve")
 async def approve_task(task_id: str) -> dict:
-    """授权执行：后台运行计划 DAG。"""
+    """授权执行：后台运行计划 DAG（进度经 WebSocket 流式推送）。"""
     try:
         result = await supervisor.approve(task_id)
     except Exception as exc:
         raise _http_error(exc) from exc
-    asyncio.create_task(supervisor.run(task_id))
+    asyncio.create_task(
+        supervisor.run(task_id, stream_callback=hub.stream_callback(task_id))
+    )
     return result
+
+
+@app.websocket("/ws/tasks/{task_id}")
+async def task_events_ws(websocket: WebSocket, task_id: str) -> None:
+    """任务执行流式事件：订阅 /ws/tasks/{id} 即可实时收节点进度与终态。"""
+    await websocket.accept()
+    q = await hub.subscribe(task_id)
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(q.get(), timeout=20)
+                await websocket.send_json(event)
+            except TimeoutError:
+                # 心跳保活：20s 无事件发 ping，客户端可据此判断连接存活
+                await websocket.send_json({"task_id": task_id, "type": "ping"})
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await hub.unsubscribe(task_id, q)
 
 
 @app.get("/api/v1/tasks/{task_id}")

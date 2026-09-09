@@ -21,6 +21,12 @@ class TaskUpdate(BaseModel):
     priority: str | None = Field(default=None, pattern="^(low|medium|high)$")
 
 
+class ResumeRequest(BaseModel):
+    """审批门继续决策：approve=true 放行，false 拒绝该子任务。"""
+
+    approve: bool = Field(default=True, description="true 放行该子任务，false 拒绝（标 FAILED）")
+
+
 class AssignRequest(BaseModel):
     agent_id: str = Field(..., description="智能体员工 id")
 

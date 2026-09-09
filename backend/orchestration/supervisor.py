@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from collections.abc import Awaitable, Callable
@@ -187,8 +188,12 @@ class Supervisor:
         await db.update_task_status(self.db_path, task_id, "APPROVED")
         return {"task_id": task_id, "status": "APPROVED", "message": "已授权，等待执行"}
 
-    async def run(self, task_id: str) -> dict:
-        """同步执行计划 DAG（供后台任务 / 测试直接调用）。"""
+    async def run(self, task_id: str, stream_callback=None) -> dict:
+        """同步执行计划 DAG（供后台任务 / 测试直接调用）。
+
+        遇审批门（子任务 tool=human / tool_args.approval）挂起返回 INTERRUPTED，
+        由 resume 继续；stream_callback 每轮节点输出异步推流（WebSocket）。
+        """
         await self._ensure_db()
         task = await db.get_task(self.db_path, task_id)
         if task is None:
@@ -202,6 +207,31 @@ class Supervisor:
             max_concurrency=self.max_concurrency,
             max_retries=self.max_retries,
             checkpoint_path=self.checkpoint_path,
+            stream_callback=stream_callback,
+        )
+        return {"task_id": task_id, "status": final}
+
+    async def resume(self, task_id: str, decision: dict, stream_callback=None) -> dict:
+        """继续被审批门挂起的任务（resume=decision，approve: true/false）。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] != "INTERRUPTED":
+            raise ValueError(f"当前状态不允许继续（非挂起）：{task['status']}")
+        if "approve" not in decision:
+            raise ValueError("resume 决策需要 approve: true/false")
+        from backend.orchestration.graph import resume_graph
+
+        final = await resume_graph(
+            self.db_path,
+            task_id,
+            decision,
+            self.tools,
+            max_concurrency=self.max_concurrency,
+            max_retries=self.max_retries,
+            checkpoint_path=self.checkpoint_path,
+            stream_callback=stream_callback,
         )
         return {"task_id": task_id, "status": final}
 
@@ -216,9 +246,84 @@ class Supervisor:
 
     # ---------- 查询 ----------
 
-    async def list(self, limit: int = 50) -> list[dict]:
+    async def list(
+        self,
+        limit: int = 50,
+        *,
+        kind: str | None = None,
+        status: str | None = None,
+        assignee_id: str | None = None,
+        source: str | None = None,
+    ) -> list[dict]:
         await self._ensure_db()
-        return await db.list_tasks(self.db_path, limit=limit)
+        return await db.list_tasks(
+            self.db_path,
+            limit=limit,
+            kind=kind,
+            status=status,
+            assignee_id=assignee_id,
+            source=source,
+        )
+
+    # ---------- 任务中心管理（P3.2） ----------
+
+    async def delete_task(self, task_id: str) -> dict:
+        """删除任务及其子任务（不可恢复）。"""
+        await self._ensure_db()
+        if await db.get_task(self.db_path, task_id) is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        await db.delete_task(self.db_path, task_id)
+        return {"deleted": task_id}
+
+    async def cancel_task(self, task_id: str) -> dict:
+        """取消任务：未执行（PENDING/PLANNED/APPROVED）直接置 CANCELLED；
+        执行中置取消标记，引擎下一轮停止推进并落 CANCELLED。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] in ("DONE", "CANCELLED", "FAILED"):
+            raise ValueError(f"任务已终态（{task['status']}），无需取消")
+        await db.set_task_cancelled(self.db_path, task_id, True)
+        if task["status"] in ("PENDING", "PLANNED", "APPROVED", "INTERRUPTED"):
+            await db.update_task_status(self.db_path, task_id, "CANCELLED")
+        return await db.get_task(self.db_path, task_id)
+
+    async def rerun_task(self, task_id: str) -> dict:
+        """再跑一次：复用已绑定的计划重建子任务并后台执行（无需重新规划）。
+        无计划时走 plan → approve → run 全闭环。"""
+        await self._ensure_db()
+        task = await db.get_task(self.db_path, task_id)
+        if task is None:
+            raise KeyError(f"任务不存在：{task_id}")
+        if task["status"] not in ("DONE", "FAILED", "CANCELLED"):
+            raise ValueError(f"仅终态任务可再跑一次（当前：{task['status']}）")
+        await db.set_task_cancelled(self.db_path, task_id, False)
+        await db.delete_subtasks(self.db_path, task_id)
+        await db.update_task_status(self.db_path, task_id, "PENDING", plan_json="")
+        if task.get("plan_json"):
+            plan = json.loads(task["plan_json"])
+            id_map = {s["id"]: f"{task_id}-{s['id']}" for s in plan["tasks"]}
+            for position, sub in enumerate(plan["tasks"]):
+                await db.insert_subtask(
+                    self.db_path,
+                    id_map[sub["id"]],
+                    task_id,
+                    sub["title"],
+                    sub.get("description", ""),
+                    [id_map[d] for d in sub.get("depends_on", [])],
+                    sub.get("tool", "noop"),
+                    sub.get("tool_args", {}),
+                    position,
+                )
+            await db.update_task_status(self.db_path, task_id, "PLANNED", task["plan_json"])
+            await self.approve(task_id)
+            asyncio.create_task(self.run(task_id))
+            return {"task_id": task_id, "status": "APPROVED", "message": "已重新执行"}
+        await self.plan(task_id)
+        await self.approve(task_id)
+        asyncio.create_task(self.run(task_id))
+        return {"task_id": task_id, "status": "APPROVED", "message": "已重新规划并执行"}
 
 
 def _default_planner(llm: LLMClient) -> Planner:

@@ -21,11 +21,13 @@ async def execute_dag(
     max_concurrency: int = 2,
     max_retries: int = 1,
     checkpoint_path: str | None = None,
+    stream_callback=None,
 ) -> str:
     """执行任务的计划 DAG（LangGraph 图 + checkpointer），返回最终状态。
 
     若任务已派给智能体员工且该员工配置了工具白名单，
     非终态子任务使用白名单外工具的直接标记 FAILED（安全护栏）。
+    stream_callback 透传给 run_graph 做 WebSocket 流式推送。
     """
     await _apply_agent_tool_whitelist(path, task_id)
 
@@ -38,6 +40,7 @@ async def execute_dag(
         max_concurrency=max_concurrency,
         max_retries=max_retries,
         checkpoint_path=checkpoint_path,
+        stream_callback=stream_callback,
     )
 
 
@@ -78,6 +81,8 @@ async def _run_subtask(
         tool_args = json.loads(sub["tool_args"] or "{}")
     except json.JSONDecodeError:
         tool_args = {}
+    # 审批元数据（approval）是图内 human-in-the-loop 标记，不是工具参数
+    tool_args.pop("approval", None)
 
     last_error: str | None = None
     for attempt in range(max_retries + 1):

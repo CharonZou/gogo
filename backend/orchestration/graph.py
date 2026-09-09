@@ -16,15 +16,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict
 
 from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import Command, interrupt
 
 from backend.core import db
 from backend.orchestration.executor import _run_subtask
 from backend.tools.executor import ToolExecutor
+
+# 流式事件回调：每轮节点输出推给订阅者（WebSocket / 日志）
+StreamCallback = Callable[[dict], Awaitable[None]]
 
 
 class RunState(TypedDict, total=False):
@@ -36,6 +41,17 @@ class RunState(TypedDict, total=False):
 
 def _cfg(config: RunnableConfig) -> dict[str, Any]:
     return config["configurable"]
+
+
+def _needs_approval(sub: dict) -> bool:
+    """子任务是否需人工审批：tool=human 或 tool_args.approval=true。"""
+    if (sub["tool"] or "noop") == "human":
+        return True
+    try:
+        args = json.loads(sub["tool_args"] or "{}")
+    except json.JSONDecodeError:
+        return False
+    return bool(args.get("approval"))
 
 
 async def execute_node(state: RunState, config: RunnableConfig) -> dict:
@@ -51,6 +67,12 @@ async def execute_node(state: RunState, config: RunnableConfig) -> dict:
     max_concurrency: int = cfg["max_concurrency"]
     max_retries: int = cfg["max_retries"]
 
+    # 取消标记：已取消的任务不再推进，落 CANCELLED 终态
+    task = await db.get_task(path, task_id)
+    if task is not None and task.get("cancelled"):
+        await db.update_task_status(path, task_id, "CANCELLED")
+        return {"done": [], "failed": [], "final_status": "CANCELLED"}
+
     await db.update_task_status(path, task_id, "RUNNING")
 
     subtasks = await db.list_subtasks(path, task_id)
@@ -65,21 +87,27 @@ async def execute_node(state: RunState, config: RunnableConfig) -> dict:
     done: set[str] = set(state.get("done", []))
     done.update(s["id"] for s in subtasks if s["status"] == "DONE")
     failed: set[str] = set(state.get("failed", []))
-    # 白名单拒绝（[whitelist] 前缀）为硬性终态，不随 FAILED 重跑
+    # 硬性终态：白名单拒绝 / 人工拒绝不随 FAILED 重跑（避免恢复后重复审批）
     failed.update(
         s["id"]
         for s in subtasks
         if s["status"] == "FAILED"
-        and (s["error"] or "").startswith("[whitelist]")
+        and (s["error"] or "").startswith(("[whitelist]", "[rejected]"))
     )
 
     while len(done) < len(subtasks) and not failed:
+        # 每轮执行前再检查取消（用户在 RUNNING 中点了取消）
+        task = await db.get_task(path, task_id)
+        if task is not None and task.get("cancelled"):
+            await db.update_task_status(path, task_id, "CANCELLED")
+            return {"done": sorted(done), "failed": sorted(failed), "final_status": "CANCELLED"}
+
         ready = [
             s
             for s in subtasks
             if s["id"] not in done
             and s["id"] not in failed
-            and s["status"] in ("PENDING", "FAILED")
+            and s["status"] in ("PENDING", "FAILED", "WAITING_APPROVAL")
             and all(d in done for d in deps[s["id"]])
         ]
         if not ready:
@@ -88,7 +116,28 @@ async def execute_node(state: RunState, config: RunnableConfig) -> dict:
             failed.update(missing)
             break
 
-        batch = ready[:max_concurrency]
+        # 审批门（human-in-the-loop）：待执行子任务需要审批时挂起等人工
+        for s in ready:
+            if _needs_approval(s):
+                await db.update_subtask(path, s["id"], status="WAITING_APPROVAL")
+                await db.update_task_status(path, task_id, "INTERRUPTED")
+                # interrupt 为同步挂起：首次运行在此暂停（返回 __interrupt__），
+                # resume 后立即返回人工决策（{"approve": true/false}）
+                decision = interrupt({"subtask_id": s["id"], "title": s["title"]})
+                if not decision.get("approve"):
+                    await db.update_subtask(
+                        path,
+                        s["id"],
+                        status="FAILED",
+                        error="[rejected] 人工未批准该子任务",
+                    )
+                    failed.add(s["id"])
+                    continue
+                # 已批准：标记 APPROVED（非 PENDING），恢复重跑时不再进 ready 重复审批
+                await db.update_subtask(path, s["id"], status="APPROVED")
+
+        # 已拒绝（failed 集合）的子任务不再入批执行
+        batch = [s for s in ready if s["id"] not in failed][:max_concurrency]
         outcomes = await asyncio.gather(
             *(_run_subtask(path, s, tools, max_retries=max_retries) for s in batch)
         )
@@ -145,11 +194,13 @@ async def run_graph(
     max_concurrency: int = 2,
     max_retries: int = 1,
     checkpoint_path: str | None = None,
+    stream_callback: StreamCallback | None = None,
 ) -> str:
     """执行任务的计划 DAG（LangGraph 图 + checkpointer），返回最终状态。
 
     同 task_id 重新调用即断点续跑：从 checkpoint 恢复 done 集合，
-    已完成子任务不再重跑。
+    已完成子任务不再重跑。遇审批门（interrupt）挂起返回 INTERRUPTED，
+    由 resume_graph 继续。stream_callback 每轮节点输出异步推流。
     """
     ckpt = checkpoint_path or default_checkpoint_path(path)
     async with AsyncSqliteSaver.from_conn_string(ckpt) as saver:
@@ -164,8 +215,114 @@ async def run_graph(
                 "max_retries": max_retries,
             }
         }
-        result = await compiled.ainvoke(
-            {"task_id": task_id, "done": [], "failed": [], "final_status": "PENDING"},
-            config,
+        return await _stream_graph(compiled, config, task_id, stream_callback)
+
+
+async def resume_graph(
+    path: str,
+    task_id: str,
+    decision: dict,
+    tools: ToolExecutor,
+    *,
+    max_concurrency: int = 2,
+    max_retries: int = 1,
+    checkpoint_path: str | None = None,
+    stream_callback: StreamCallback | None = None,
+) -> str:
+    """继续被审批门挂起的任务：Command(resume=decision) 恢复执行。"""
+    ckpt = checkpoint_path or default_checkpoint_path(path)
+    async with AsyncSqliteSaver.from_conn_string(ckpt) as saver:
+        await saver.setup()
+        compiled = build_graph().compile(checkpointer=saver)
+        config = {
+            "configurable": {
+                "thread_id": task_id,
+                "db_path": path,
+                "tools": tools,
+                "max_concurrency": max_concurrency,
+                "max_retries": max_retries,
+            }
+        }
+        return await _stream_graph(
+            compiled, config, task_id, stream_callback, resume=decision
         )
-    return result["final_status"]
+
+
+async def _stream_graph(
+    compiled: Any,
+    config: dict,
+    task_id: str,
+    stream_callback: StreamCallback | None,
+    *,
+    resume: dict | None = None,
+) -> str:
+    """ainvoke/astream 统一入口：遇 interrupt 返回 INTERRUPTED，事件异步推送。"""
+    if resume is not None:
+        result = await compiled.ainvoke(Command(resume=resume), config)
+        return _finish_stream(compiled, config, task_id, result, stream_callback)
+
+    final = "PENDING"
+    async for chunk in compiled.astream(
+        {"task_id": task_id, "done": [], "failed": [], "final_status": "PENDING"},
+        config,
+        stream_mode="updates",
+    ):
+        if "__interrupt__" in chunk:
+            # 审批门挂起：停止推进，返回 INTERRUPTED 由 resume_graph 续跑
+            final = "INTERRUPTED"
+            break
+        for node_name, node_out in chunk.items():
+            if not isinstance(node_out, dict) or "final_status" not in node_out:
+                continue
+            final = node_out["final_status"]
+            if stream_callback is not None:
+                try:
+                    await stream_callback(
+                        {
+                            "task_id": task_id,
+                            "node": node_name,
+                            "done": node_out.get("done", []),
+                            "failed": node_out.get("failed", []),
+                            "final_status": final,
+                        }
+                    )
+                except Exception:  # noqa: BLE001, S110 - 推流失败不影响执行
+                    pass
+    if final == "PENDING":
+        # 兜底：astream 挂起时以 DB 状态为准（中断发生在节点内部）
+        from backend.core import db
+
+        task = await db.get_task(config["configurable"]["db_path"], task_id)
+        if task is not None and task["status"] == "INTERRUPTED":
+            final = "INTERRUPTED"
+    return final
+
+
+def _finish_stream(
+    compiled: Any,
+    config: dict,
+    task_id: str,
+    result: dict,
+    stream_callback: StreamCallback | None,
+) -> str:
+    """resume 后无更多中断直接收束；仍有中断则继续 INTERRUPTED。"""
+    if "__interrupt__" in result:
+        return "INTERRUPTED"
+    final = result.get("final_status", "PENDING")
+    if stream_callback is not None:
+        # 同步路径（resume 后未再挂起）：补一条终态事件
+        try:
+            asyncio.get_running_loop().create_task(
+                stream_callback(
+                    {
+                        "task_id": task_id,
+                        "node": "execute",
+                        "done": result.get("done", []),
+                        "failed": result.get("failed", []),
+                        "final_status": final,
+                    }
+                )
+            )
+        except Exception:  # noqa: BLE001, S110 - 推流失败不影响执行
+            pass
+    return final
