@@ -1,0 +1,32 @@
+- insert:
+    - id: win-terminal-inspector
+      name: ./node_modules/dsh-win-terminal-inspector/index.js
+- id: ui-settings-general
+  name: "@deepseek-ai/dsh-client-ui-settings-general"
+  config:
+    welcomeNoticeVersion: 2026-08-13.1
+- id: better-sidebar
+  name: dsh-better-sidebar
+  config:
+    agentOpenTools: true
+    titleBarScheme: auto
+    titleBarPresetId: dsh-desktop
+    titleBarCompat: false
+    htmlViewerNoSandbox: false
+    htmlViewerDefaultUnsafe: false
+    viewersEnabled:
+      markdown: true
+      code: true
+      pptx: true
+- insert:
+    - id: dsh-better-sidebar-plugin-office
+      name: '@huanlin/dsh-plugin-better-sidebar-plugin-office'
+- id: llm-deepseek
+  name: "@deepseek-ai/dsh-llm-deepseek-api-key"
+  config:
+    baseURL: https://api.deepseek.com/anthropic
+- id: agent-preset-registry
+  name: "@deepseek-ai/dsh-agent-preset-registry"
+  config:
+    default: standard
+    selectedDefault: cordis

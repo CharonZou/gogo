@@ -1,0 +1,19 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "python_version": "3.12",
+  "dependencies": [
+    "."
+  ],
+  "env": ".env",
+  "graphs": {
+    "lead_agent": "gogo.agents.lead_agent.agent:make_lead_agent",
+    "claude_code_chat": "gogo.agents.claude_code_chat_graph:make_claude_code_chat_graph",
+    "goal_agent": "gogo.agents.goal.goal_graph:make_goal_graph"
+  },
+  "checkpointer": {
+    "path": "./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer"
+  },
+  "http": {
+    "app": "gogo.langgraph_http:app"
+  }
+}

@@ -1,0 +1,194 @@
+2026-10-13 20:06:56 [info     ] Using langgraph_runtime_inmem
+2026-10-13 20:06:57 [info     ] Using auth of type=noop
+2026-10-13 20:06:58 [info     ] Configuring custom checkpointer at ./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer
+
+This replaces the default persistence backend.
+Required methods: aget, aget_tuple, aput, aput_writes, alist.
+Recommended methods: adelete_thread, adelete_for_runs, acopy_thread, aprune.
+Missing methods will degrade functionality — see startup logs for details.
+2026-10-13 20:06:58 [info     ] Loading checkpointer ./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer checkpointer_path=./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer elapsed_seconds=0.001413399999989906 name=_load_checkpointer
+2026-10-13 20:06:58 [info     ] Using custom checkpointer: OmitTranscriptCheckpointer kind="<class 'gogo.agents.checkpointer.omit_transcript.OmitTranscriptCheckpointer'>"
+2026-10-13 20:06:58 [warning  ] Custom checkpointer missing adelete_thread: DELETE /threads/<id> will fail. Thread deletion and delete_all pruning are not supported.
+2026-10-13 20:06:58 [warning  ] Custom checkpointer missing adelete_for_runs: multitask_strategy='rollback' will not clean up checkpoints from cancelled runs. Thread state may reflect the rolled-back run until a new run completes.
+2026-10-13 20:06:58 [info     ] Custom checkpointer missing acopy_thread: using generic fallback (functional but slower). POST /threads/<id>/copy will re-insert checkpoints one-by-one via aput/aput_writes.
+2026-10-13 20:06:58 [warning  ] Custom checkpointer missing aprune: thread history pruning (keep_latest) is not supported. Old checkpoints will accumulate and storage usage will grow without bound for long-lived threads.
+2026-10-13 20:06:58 [info     ] Importing graph with id lead_agent elapsed_seconds=0.2532934000000182 graph_id=lead_agent module=gogo.agents.lead_agent.agent name=_graph_from_spec path=None
+2026-10-13 20:06:58 [info     ] Importing graph with id claude_code_chat elapsed_seconds=0.003124500000012631 graph_id=claude_code_chat module=gogo.agents.claude_code_chat_graph name=_graph_from_spec path=None
+2026-10-13 20:06:58 [info     ] Importing graph with id goal_agent elapsed_seconds=0.00016600000003563764 graph_id=goal_agent module=gogo.agents.goal.goal_graph name=_graph_from_spec path=None
+[AGENT-TIMING] refresh_chat_models_db=7ms
+[AGENT-TIMING] graph_get_or_build=4772ms cached=False[AGENT-TIMING] graph_get_or_build=5198ms cached=False
+
+[AGENT-TIMING] make_lead_agent_total=4818ms cached=False[AGENT-TIMING] make_lead_agent_total=5319ms cached=False
+
+[AGENT-TIMING] graph_get_or_build=159ms cached=False[AGENT-TIMING] graph_get_or_build=161ms cached=False
+
+[AGENT-TIMING] make_lead_agent_total=180ms cached=False
+[AGENT-TIMING] make_lead_agent_total=179ms cached=False
+[AGENT-TIMING] graph_get_or_build=117ms cached=False[AGENT-TIMING] graph_get_or_build=118ms cached=False
+[AGENT-TIMING] make_lead_agent_total=137ms cached=False
+
+[AGENT-TIMING] make_lead_agent_total=138ms cached=False
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] make_lead_agent_total=16ms cached=True[AGENT-TIMING] graph_get_or_build=0ms cached=True
+
+[AGENT-TIMING] make_lead_agent_total=16ms cached=True
+[AGENT-TIMING] refresh_chat_models_db=6ms
+[AGENT-TIMING] load_mission_state_ms=3ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=718ms cached=False
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=719ms
+[AGENT-TIMING] make_lead_agent_total=749ms cached=False
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=13ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.before_model=4ms
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.abefore_model=4ms
+[AGENT-TIMING] mw.SessionTranscriptHydrationMiddleware.before_model=8ms
+[AGENT-TIMING] mw.SessionTranscriptHydrationMiddleware.abefore_model=9ms
+[AGENT-TIMING] mw.MissionStateMiddleware.abefore_model=8ms
+[AGENT-TIMING] mw.ToolApprovalReplayMiddleware.abefore_model=9ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=4ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=5ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=1ms
+[AGENT-TIMING] make_lead_agent_total=20ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=14ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.before_model=3ms
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.abefore_model=4ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=6ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=28ms
+[AGENT-TIMING] refresh_chat_models_db=6ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=0ms
+[AGENT-TIMING] make_lead_agent_total=25ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=12ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=4ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=5ms
+[AGENT-TIMING] refresh_chat_models_db=6ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=0ms
+[AGENT-TIMING] make_lead_agent_total=23ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=11ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.before_model=4ms
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.abefore_model=4ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=3ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=4ms
+[AGENT-TIMING] mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=134ms
+[AGENT-TIMING] mw.SkillsInjectionMiddleware.awrap_model_call.pre=6ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.awrap_model_call.pre=3ms
+[AGENT-TIMING] → cloud_api_call seq=1 after_before_model=198ms phases=[after_before_model_hooks_ms=198ms, mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=134ms, apply_prompt_template_ms=118ms]
+[AGENT-TIMING] mw.ExplorationGraphLiveFooterMiddleware.awrap_model_call.pre=7ms
+[AGENT-TIMING] mw.MemoryLiveFooterMiddleware.awrap_model_call.pre=36ms
+[AGENT-TIMING] mw.ContextCompactionMiddleware.awrap_model_call.pre=42ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.after_model=8ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.aafter_model=9ms
+[AGENT-TIMING] mw.MemoryMiddleware.aafter_model=16ms
+[AGENT-TIMING] mw.TitleMiddleware.aafter_model=10ms
+[AGENT-TIMING] mw.TranscriptMiddleware.after_model=11ms
+[AGENT-TIMING] mw.TranscriptMiddleware.aafter_model=12ms
+[AGENT-TIMING] mw.SessionRunLifecycleMiddleware.aafter_agent=4ms
+[AGENT-TIMING] refresh_chat_models_db=5ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=0ms
+[AGENT-TIMING] make_lead_agent_total=20ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=23ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=4ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=45ms
+[AGENT-TIMING] mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=18ms
+[AGENT-TIMING] mw.SkillsInjectionMiddleware.awrap_model_call.pre=7ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.awrap_model_call.pre=4ms
+[AGENT-TIMING] → cloud_api_call seq=1 after_before_model=115ms phases=[after_before_model_hooks_ms=115ms, mw.CollabCycleTraceMiddleware.abefore_model=45ms, mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=18ms]
+[AGENT-TIMING] mw.MemoryLiveFooterMiddleware.awrap_model_call.pre=19ms
+[AGENT-TIMING] mw.ContextCompactionMiddleware.awrap_model_call.pre=42ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.after_model=3ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.aafter_model=84ms
+[AGENT-TIMING] mw.MemoryMiddleware.aafter_model=95ms
+[AGENT-TIMING] mw.TitleMiddleware.aafter_model=7ms
+[AGENT-TIMING] mw.TranscriptMiddleware.after_model=6ms
+[AGENT-TIMING] mw.TranscriptMiddleware.aafter_model=7ms
+[AGENT-TIMING] refresh_chat_models_db=8ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=1ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=0ms
+[AGENT-TIMING] make_lead_agent_total=32ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=21ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.before_model=23ms
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.abefore_model=24ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=5ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=6ms
+[AGENT-TIMING] mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=34ms
+[AGENT-TIMING] mw.SkillsInjectionMiddleware.awrap_model_call.pre=16ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.awrap_model_call.pre=8ms
+[AGENT-TIMING] → cloud_api_call seq=1 after_before_model=163ms phases=[after_before_model_hooks_ms=163ms, mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=34ms, apply_prompt_template_ms=28ms]
+[AGENT-TIMING] mw.MemoryLiveFooterMiddleware.awrap_model_call.pre=49ms
+[AGENT-TIMING] mw.ContextCompactionMiddleware.awrap_model_call.pre=51ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.after_model=8ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.aafter_model=10ms
+[AGENT-TIMING] mw.MemoryMiddleware.aafter_model=32ms
+[AGENT-TIMING] mw.TitleMiddleware.aafter_model=24ms
+[AGENT-TIMING] mw.TranscriptMiddleware.after_model=8ms
+[AGENT-TIMING] mw.TranscriptMiddleware.aafter_model=9ms
+[AGENT-TIMING] refresh_chat_models_db=5ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=0ms
+[AGENT-TIMING] make_lead_agent_total=23ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=10ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=5ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=5ms
+[AGENT-TIMING] mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=17ms
+[AGENT-TIMING] mw.SkillsInjectionMiddleware.awrap_model_call.pre=5ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.awrap_model_call.pre=3ms
+[AGENT-TIMING] → cloud_api_call seq=1 after_before_model=71ms phases=[after_before_model_hooks_ms=71ms, mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=17ms, middleware_wrap_other_ms=17ms]
+[AGENT-TIMING] mw.MemoryLiveFooterMiddleware.awrap_model_call.pre=22ms
+[AGENT-TIMING] mw.ContextCompactionMiddleware.awrap_model_call.pre=37ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.after_model=5ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.aafter_model=6ms
+[AGENT-TIMING] mw.MemoryMiddleware.aafter_model=9ms
+[AGENT-TIMING] mw.TitleMiddleware.aafter_model=12ms
+[AGENT-TIMING] mw.TranscriptMiddleware.after_model=6ms
+[AGENT-TIMING] mw.TranscriptMiddleware.aafter_model=6ms
+[AGENT-TIMING] load_mission_state_ms=0ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=0ms
+[AGENT-TIMING] make_lead_agent_total=19ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=10ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=-
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=4ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=5ms
+[AGENT-TIMING] mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=17ms
+[AGENT-TIMING] mw.SkillsInjectionMiddleware.awrap_model_call.pre=5ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.awrap_model_call.pre=3ms
+[AGENT-TIMING] → cloud_api_call seq=1 after_before_model=69ms phases=[after_before_model_hooks_ms=69ms, mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=17ms, middleware_wrap_other_ms=16ms]
+[AGENT-TIMING] mw.MemoryLiveFooterMiddleware.awrap_model_call.pre=21ms
+[AGENT-TIMING] mw.ContextCompactionMiddleware.awrap_model_call.pre=36ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.after_model=3ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.aafter_model=4ms
+[AGENT-TIMING] mw.MemoryMiddleware.aafter_model=11ms
+[AGENT-TIMING] mw.TitleMiddleware.aafter_model=19ms
+[AGENT-TIMING] mw.TranscriptMiddleware.after_model=7ms
+[AGENT-TIMING] mw.TranscriptMiddleware.aafter_model=8ms

@@ -1,0 +1,66 @@
+2026-10-12 23:25:14 [info     ] Using langgraph_runtime_inmem
+2026-10-12 23:25:14 [info     ] Using auth of type=noop
+2026-10-12 23:25:15 [info     ] Configuring custom checkpointer at ./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer
+
+This replaces the default persistence backend.
+Required methods: aget, aget_tuple, aput, aput_writes, alist.
+Recommended methods: adelete_thread, adelete_for_runs, acopy_thread, aprune.
+Missing methods will degrade functionality — see startup logs for details.
+2026-10-12 23:25:15 [info     ] Loading checkpointer ./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer checkpointer_path=./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer elapsed_seconds=0.001147099999798229 name=_load_checkpointer
+2026-10-12 23:25:15 [info     ] Using custom checkpointer: OmitTranscriptCheckpointer kind="<class 'gogo.agents.checkpointer.omit_transcript.OmitTranscriptCheckpointer'>"
+2026-10-12 23:25:15 [warning  ] Custom checkpointer missing adelete_thread: DELETE /threads/<id> will fail. Thread deletion and delete_all pruning are not supported.
+2026-10-12 23:25:15 [warning  ] Custom checkpointer missing adelete_for_runs: multitask_strategy='rollback' will not clean up checkpoints from cancelled runs. Thread state may reflect the rolled-back run until a new run completes.
+2026-10-12 23:25:15 [info     ] Custom checkpointer missing acopy_thread: using generic fallback (functional but slower). POST /threads/<id>/copy will re-insert checkpoints one-by-one via aput/aput_writes.
+2026-10-12 23:25:15 [warning  ] Custom checkpointer missing aprune: thread history pruning (keep_latest) is not supported. Old checkpoints will accumulate and storage usage will grow without bound for long-lived threads.
+2026-10-12 23:25:15 [info     ] Importing graph with id lead_agent elapsed_seconds=0.16218249999974432 graph_id=lead_agent module=gogo.agents.lead_agent.agent name=_graph_from_spec path=None
+2026-10-12 23:25:15 [info     ] Importing graph with id claude_code_chat elapsed_seconds=0.002469099999871105 graph_id=claude_code_chat module=gogo.agents.claude_code_chat_graph name=_graph_from_spec path=None
+2026-10-12 23:25:15 [info     ] Importing graph with id goal_agent elapsed_seconds=0.0001291000003220688 graph_id=goal_agent module=gogo.agents.goal.goal_graph name=_graph_from_spec path=None
+[AGENT-TIMING] refresh_chat_models_db=5ms
+[AGENT-TIMING] graph_get_or_build=4232ms cached=False
+[AGENT-TIMING] make_lead_agent_total=4475ms cached=False
+[AGENT-TIMING] graph_get_or_build=534ms cached=False
+[AGENT-TIMING] make_lead_agent_total=549ms cached=False
+[AGENT-TIMING] refresh_chat_models_db=7ms
+[AGENT-TIMING] graph_get_or_build=4289ms cached=False
+[AGENT-TIMING] make_lead_agent_total=4321ms cached=False
+[AGENT-TIMING] refresh_chat_models_db=5ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] make_lead_agent_total=29ms cached=True
+[AGENT-TIMING] graph_get_or_build=118ms cached=False
+[AGENT-TIMING] make_lead_agent_total=169ms cached=False
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] make_lead_agent_total=96ms cached=True
+[AGENT-TIMING] graph_get_or_build=146ms cached=False
+[AGENT-TIMING] make_lead_agent_total=217ms cached=False
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] make_lead_agent_total=12ms cached=True
+[AGENT-TIMING] refresh_chat_models_db=7ms
+[AGENT-TIMING] load_mission_state_ms=6ms
+[AGENT-TIMING] hydrate_scenarios_from_disk_ms=0ms
+[AGENT-TIMING] resolve_available_tools_ms=0ms
+[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] lead_agent_graph_get_or_build_ms=1ms
+[AGENT-TIMING] make_lead_agent_total=42ms cached=True
+[AGENT-TIMING] mw.ThreadDataMiddleware.before_agent=10ms
+[AGENT-TIMING] → begin_model_cycle seq=1 msg_count=1 请求到模型装配=0.541秒
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.before_model=6ms
+[AGENT-TIMING] mw.ToolBindingSyncMiddleware.abefore_model=8ms
+[AGENT-TIMING] mw.SessionTranscriptHydrationMiddleware.before_model=17ms
+[AGENT-TIMING] mw.SessionTranscriptHydrationMiddleware.abefore_model=19ms
+[AGENT-TIMING] mw.MissionStateMiddleware.abefore_model=11ms
+[AGENT-TIMING] mw.ToolApprovalReplayMiddleware.abefore_model=13ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.before_model=7ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.abefore_model=7ms
+[AGENT-TIMING] mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=37ms
+[AGENT-TIMING] mw.SkillsInjectionMiddleware.awrap_model_call.pre=10ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.awrap_model_call.pre=11ms
+[AGENT-TIMING] → cloud_api_call seq=1 pre_model_total=778ms after_before_model=237ms phases=[after_before_model_hooks_ms=237ms, middleware_wrap_other_ms=49ms, mw.DynamicSystemPromptOnScenarioMiddleware.awrap_model_call.pre=37ms]
+[AGENT-TIMING] mw.ExplorationGraphLiveFooterMiddleware.awrap_model_call.pre=11ms
+[AGENT-TIMING] mw.MemoryLiveFooterMiddleware.awrap_model_call.pre=122ms
+[AGENT-TIMING] mw.ContextCompactionMiddleware.awrap_model_call.pre=218ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.after_model=6ms
+[AGENT-TIMING] mw.CollabCycleTraceMiddleware.aafter_model=7ms
+[AGENT-TIMING] mw.TitleMiddleware.aafter_model=6ms
+[AGENT-TIMING] mw.TranscriptMiddleware.after_model=12ms
+[AGENT-TIMING] mw.TranscriptMiddleware.aafter_model=13ms
+[AGENT-TIMING] mw.SessionRunLifecycleMiddleware.aafter_agent=5ms

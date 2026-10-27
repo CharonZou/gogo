@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoGo · deepseek-harness IDE 工作台 · 交互原型</title>
+<style>
+  /* ===== 主题变量：真实取自 evopanel/src/style/variables.css ===== */
+  :root, [data-theme="light"] {
+    --bg-app:#e8edf2; --bg-surface:#ffffff; --bg-secondary:#f4f6f8; --bg-tertiary:#ebeef2;
+    --brand:#635bff; --text:#202124; --text-2:#5f6672; --text-3:#8b94a3; --border:#e3e8ef;
+    --chat-user-bubble:#635bff; --chat-user-fg:#ffffff;
+    --vsc-activity:#f7f8fa; --vsc-tree:#fbfcfe; --vsc-code:#ffffff; --vsc-status:#635bff;
+    --vsc-ink:#334155; --vsc-tabbar:#f7f8fa; --shadow:0 12px 32px rgba(30,42,62,.10);
+  }
+  [data-theme="dark"] {
+    --bg-app:#1e1e1e; --bg-surface:#2a2a2a; --bg-secondary:#252526; --bg-tertiary:#2d2d2d;
+    --brand:#7b74ff; --text:#e8e8ea; --text-2:#9d9da3; --text-3:#6f6f76; --border:#3a3a3a;
+    --chat-user-bubble:#7b74ff; --chat-user-fg:#ffffff;
+    --vsc-activity:#14161b; --vsc-tree:#1a1c22; --vsc-code:#15171d; --vsc-status:#2b5fd9;
+    --vsc-ink:#cbd5e1; --vsc-tabbar:#14161b; --shadow:0 16px 40px rgba(0,0,0,.35);
+  }
+  [data-theme="warm"] {
+    --bg-app:#f3ebe0; --bg-surface:#fffdf8; --bg-secondary:#f7efe3; --bg-tertiary:#f0e4d2;
+    --brand:#b8623a; --text:#3a2f22; --text-2:#7a6a55; --text-3:#a89782; --border:#e7d9c4;
+    --chat-user-bubble:#f0e4d2; --chat-user-fg:#3a2f22; --chat-user-border:rgba(74,54,32,.05);
+    --vsc-activity:#f3e9da; --vsc-tree:#faf4e9; --vsc-code:#fffdf8; --vsc-status:#b8623a;
+    --vsc-ink:#4a3a28; --vsc-tabbar:#f3e9da; --shadow:0 12px 28px rgba(74,54,32,.12);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; background:var(--bg-app); }
+  body { font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif; color:var(--text); min-width:1180px; }
+  button { font-family:inherit; cursor:pointer; }
+  .ic { display:inline-flex; vertical-align:middle; }
+
+  /* ===== 全局演示条（原型专用，非产品界面） ===== */
+  .demo-bar { position:fixed; top:0; left:0; right:0; height:44px; z-index:50;
+    display:flex; align-items:center; gap:14px; padding:0 20px;
+    background:var(--bg-surface); border-bottom:1px solid var(--border); font-size:12.5px; }
+  .demo-bar .brand { display:flex; align-items:center; gap:8px; font-weight:700; font-size:13px; }
+  .demo-bar .brand .logo { width:20px; height:20px; border-radius:6px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; }
+  .demo-bar .sep { width:1px; height:16px; background:var(--border); }
+  .demo-bar .hint { color:var(--text-2); }
+  .theme-switch { display:flex; gap:4px; margin-left:auto; background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:3px; }
+  .theme-switch button { border:0; background:transparent; color:var(--text-2); font-size:12px; padding:4px 12px; border-radius:6px; }
+  .theme-switch button.on { background:var(--bg-surface); color:var(--text); font-weight:600; box-shadow:0 1px 3px rgba(0,0,0,.08); }
+  .demo-note { font-size:12px; color:var(--text-2); }
+
+  /* ===== 视图容器 ===== */
+  .view { display:none; padding:56px 24px 24px; }
+  .view.on { display:block; }
+
+  /* ===== 视图 1：deepseek-harness 对话页（复刻真实 #/chat） ===== */
+  .chatpage { display:flex; height:calc(100vh - 80px); background:var(--bg-surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
+  .cp-nav { width:96px; flex:0 0 auto; background:var(--bg-secondary); border-right:1px solid var(--border); padding:12px 6px; display:flex; flex-direction:column; gap:4px; }
+  .cp-nav .n { display:flex; flex-direction:column; align-items:center; gap:3px; font-size:10.5px; color:var(--text-2); padding:8px 4px; border-radius:8px; }
+  .cp-nav .n.on { background:var(--bg-tertiary); color:var(--text); }
+  .cp-nav .n.ide { background:var(--brand); color:#fff; }
+  .cp-body { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  .cp-titlebar { height:44px; display:flex; align-items:center; gap:10px; padding:0 14px; border-bottom:1px solid var(--border); }
+  .cp-titlebar .t { font-size:13px; font-weight:600; }
+  .cp-titlebar .badge { font-size:10px; font-weight:700; padding:2px 8px; border-radius:20px; background:var(--brand); color:#fff; }
+  .cp-titlebar .spacer { flex:1; }
+  .ide-entry { display:flex; align-items:center; gap:5px; font-size:12px; font-weight:700; color:#fff; background:var(--brand);
+    border:0; border-radius:8px; padding:6px 12px; box-shadow:0 2px 8px color-mix(in srgb, var(--brand) 40%, transparent); }
+  .ide-entry:hover { filter:brightness(1.06); }
+  .cp-msgs { flex:1 1 auto; overflow:hidden; padding:18px 20px; display:flex; flex-direction:column; gap:14px; }
+  .m-user { align-self:flex-end; max-width:72%; background:var(--chat-user-bubble); color:var(--chat-user-fg);
+    border:1px solid var(--chat-user-border, transparent); border-radius:12px 12px 4px 12px; padding:8px 13px; font-size:12.5px; line-height:1.6; }
+  .m-ai { align-self:flex-start; max-width:96%; background:var(--bg-surface); border:1px solid var(--border); border-radius:12px 12px 12px 4px; padding:10px 13px; font-size:12.5px; line-height:1.7; color:var(--text); }
+  .m-ai .who { font-size:11px; color:var(--text-2); margin-bottom:6px; display:flex; align-items:center; gap:8px; }
+  .m-ai .who .av { width:18px; height:18px; border-radius:6px; background:var(--brand); color:#fff; display:inline-flex; align-items:center; justify-content:center; }
+  .m-ai .tools { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; color:var(--text-2); background:var(--bg-secondary); border:1px solid var(--border); padding:2px 8px; border-radius:6px; }
+  .m-ai h4 { margin:8px 0 4px; font-size:12.5px; }
+  .m-ai ul { margin:4px 0; padding-left:18px; }
+  .m-ai li { margin:2px 0; }
+  .m-ai code { font-family:Consolas,"Courier New",monospace; font-size:11.5px; background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; }
+  .m-ai .kb { margin:8px 0 2px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:8px; padding:8px 10px; font-family:Consolas,"Courier New",monospace; font-size:11.5px; line-height:1.6; white-space:pre; }
+  .cp-input { padding:12px 14px 14px; border-top:1px solid var(--border); }
+  .cp-input .box { background:var(--bg-secondary); border:1px solid var(--border); border-radius:10px; padding:10px 12px; color:var(--text-3); font-size:12.5px; }
+  .cp-input .row { display:flex; align-items:center; gap:8px; margin-top:8px; font-size:11.5px; color:var(--text-2); }
+  .cp-input .row .mode { margin-left:auto; display:flex; align-items:center; gap:6px; background:var(--bg-surface); border:1px solid var(--border); padding:3px 10px; border-radius:20px; font-size:11px; }
+  .cp-agent { width:296px; flex:0 0 auto; border-left:1px solid var(--border); background:var(--bg-surface); overflow:hidden; display:flex; flex-direction:column; }
+  .cp-agent .tabs { display:flex; border-bottom:1px solid var(--border); font-size:12px; }
+  .cp-agent .tabs .tab { flex:1; text-align:center; padding:10px 0; color:var(--text-2); }
+  .cp-agent .tabs .tab.on { color:var(--text); font-weight:600; border-bottom:2px solid var(--brand); }
+  .cp-agent .body { padding:12px; overflow:hidden; display:flex; flex-direction:column; gap:10px; }
+  .agent-card { border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
+  .agent-card .hd { display:flex; align-items:center; gap:8px; }
+  .agent-card .av { width:28px; height:28px; border-radius:8px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; }
+  .agent-card .nm { font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; }
+  .agent-card .main { font-size:9.5px; font-weight:700; background:var(--brand); color:#fff; border-radius:20px; padding:1px 7px; }
+  .agent-card .desc { font-size:11px; color:var(--text-2); margin-top:5px; line-height:1.5; }
+  .stat-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:6px; }
+  .stat { background:var(--bg-secondary); border:1px solid var(--border); border-radius:8px; padding:6px 4px; text-align:center; }
+  .stat .v { font-size:15px; font-weight:700; }
+  .stat .k { font-size:9.5px; color:var(--text-2); margin-top:1px; }
+  .skill-list { font-size:11px; color:var(--text); display:flex; flex-direction:column; gap:4px; }
+  .skill-list .s { display:flex; align-items:center; gap:6px; padding:4px 8px; background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; }
+  .ctx { font-size:11px; color:var(--text-2); }
+  .ctx .bar { height:5px; border-radius:4px; background:var(--bg-tertiary); margin:6px 0 4px; overflow:hidden; }
+  .ctx .bar i { display:block; height:100%; width:6%; background:var(--brand); border-radius:4px; }
+  .ctx .num { display:flex; justify-content:space-between; }
+  .deposit { display:flex; gap:6px; }
+  .deposit button { flex:1; font-size:11px; border:1px solid var(--border); background:var(--bg-secondary); color:var(--text); border-radius:7px; padding:6px 0; }
+  .deposit button.main { background:var(--brand); border-color:var(--brand); color:#fff; }
+
+  /* ===== 视图 2：IDE 工作台 ===== */
+  .ide { display:flex; flex-direction:column; height:calc(100vh - 80px); background:var(--bg-surface); border:1px solid var(--border); border-radius:14px; overflow:hidden; box-shadow:var(--shadow); }
+  .ide-top { height:46px; flex:0 0 auto; display:flex; align-items:center; gap:12px; padding:0 14px; border-bottom:1px solid var(--border); }
+  .ide-top .back { display:flex; align-items:center; gap:4px; border:1px solid var(--border); background:var(--bg-secondary); color:var(--text); font-size:12px; border-radius:7px; padding:5px 10px; }
+  .ide-top .title { font-size:13px; font-weight:600; display:flex; align-items:center; gap:7px; }
+  .ide-top .title .ide-tag { font-size:10px; font-weight:700; background:var(--brand); color:#fff; border-radius:6px; padding:2px 7px; }
+  .ide-top .spacer { flex:1; }
+  .ide-top .ws { font-family:Consolas,"Courier New",monospace; font-size:11px; color:var(--text-2); background:var(--bg-secondary); border:1px solid var(--border); border-radius:6px; padding:3px 9px; }
+  .ide-top .state { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-2); padding:3px 10px; border-radius:20px; background:var(--bg-secondary); border:1px solid var(--border); }
+  .ide-top .state .dot { width:7px; height:7px; border-radius:50%; background:#22c55e; box-shadow:0 0 0 3px rgba(34,197,94,.16); }
+  .ide-top .new { font-size:12px; font-weight:600; border:0; border-radius:7px; padding:6px 13px; background:var(--brand); color:#fff; }
+  .ide-body { flex:1 1 auto; min-height:0; display:flex; }
+  .vsc { flex:1 1 auto; min-width:0; min-height:0; display:flex; background:var(--bg-surface); }
+  .vsc-activity { width:44px; flex:0 0 auto; display:flex; flex-direction:column; align-items:center; gap:14px; padding-top:12px; background:var(--vsc-activity); border-right:1px solid var(--border); color:var(--text-2); }
+  .vsc-activity svg { opacity:.5; } .vsc-activity svg.on { opacity:1; }
+  .vsc-tree { width:206px; flex:0 0 auto; background:var(--vsc-tree); border-right:1px solid var(--border); padding:10px 8px; font-size:12px; line-height:1.85; overflow:hidden; color:var(--text); }
+  .vsc-tree .lbl { font-size:10.5px; letter-spacing:.8px; opacity:.55; padding:2px 8px 6px; }
+  .tr { display:flex; align-items:center; gap:5px; padding:1px 8px; border-radius:4px; white-space:nowrap; }
+  .tr .tw { font-size:12px; }
+  .tr.sel { background:color-mix(in srgb, var(--brand) 14%, transparent); color:var(--brand); font-weight:600; }
+  .tr .fi { opacity:.8; display:inline-flex; }
+  .ind { display:inline-block; }
+  .vsc-ed { flex:1 1 auto; min-width:0; display:flex; flex-direction:column; }
+  .vsc-tabs { display:flex; height:34px; background:var(--vsc-tabbar); border-bottom:1px solid var(--border); font-size:12px; }
+  .vsc-tab { display:flex; align-items:center; gap:6px; padding:0 12px; color:var(--text-2); }
+  .vsc-tab.act { background:var(--vsc-code); color:var(--text); border-top:2px solid var(--brand); }
+  .vsc-tab .x { opacity:.4; display:inline-flex; }
+  .vsc-code { flex:1 1 auto; background:var(--vsc-code); color:var(--vsc-ink); margin:0; padding:14px 18px; font-family:Consolas,"Courier New",monospace; font-size:12.5px; line-height:1.72; overflow:hidden; white-space:pre; }
+  .ln { user-select:none; display:inline-block; width:34px; text-align:right; margin-right:14px; opacity:.45; }
+  .tok-k { color:#c084fc; font-weight:600; } .tok-s { color:#22c55e; } .tok-f { color:#38bdf8; } .tok-c { color:#64748b; font-style:italic; } .tok-p { color:#f59e0b; }
+  .vsc-status { height:22px; display:flex; align-items:center; gap:14px; padding:0 12px; font-size:10.5px; background:var(--vsc-status); color:#fff; }
+  .vsc-status .st { display:inline-flex; align-items:center; gap:4px; }
+
+  .chat { width:var(--chat-w,360px); flex:0 0 auto; display:flex; flex-direction:column; border-left:1px solid var(--border); background:var(--bg-surface); position:relative; }
+  .chat-divider { position:absolute; left:-4px; top:0; bottom:0; width:8px; cursor:col-resize; z-index:5; }
+  .chat-divider:hover { background:color-mix(in srgb, var(--brand) 18%, transparent); }
+  .chat-idbar { display:flex; align-items:center; gap:9px; padding:10px 12px; border-bottom:1px solid var(--border); background:var(--bg-secondary); }
+  .chat-idbar .av { width:30px; height:30px; border-radius:9px; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; flex:0 0 auto; }
+  .chat-idbar .who { flex:1 1 auto; min-width:0; }
+  .chat-idbar .nm { font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; }
+  .chat-idbar .meta { font-size:11px; opacity:.62; margin-top:1px; }
+  .chat-idbar .main { font-size:10px; font-weight:700; background:var(--brand); color:#fff; border-radius:20px; padding:1px 7px; }
+  .chat-idbar .state { display:flex; align-items:center; gap:5px; font-size:11px; color:var(--text-2); }
+  .chat-idbar .state .dot { width:6px; height:6px; border-radius:50%; background:#22c55e; }
+  .chat-msgs { flex:1 1 auto; overflow:hidden; padding:12px; display:flex; flex-direction:column; gap:11px; }
+  .cm-user { align-self:flex-end; max-width:88%; background:var(--chat-user-bubble); color:var(--chat-user-fg); border:1px solid var(--chat-user-border, transparent); border-radius:12px 12px 4px 12px; padding:8px 12px; font-size:12.5px; line-height:1.6; }
+  .cm-ai { align-self:flex-start; max-width:96%; background:var(--bg-surface); border:1px solid var(--border); border-radius:12px 12px 12px 4px; padding:9px 12px; font-size:12.5px; line-height:1.62; }
+  .cm-ai .tools { display:inline-flex; align-items:center; gap:5px; font-size:10.5px; color:var(--text-2); background:var(--bg-secondary); border:1px solid var(--border); padding:2px 8px; border-radius:6px; }
+  .cm-ai h4 { margin:7px 0 3px; font-size:12.5px; }
+  .cm-ai code { font-family:Consolas,"Courier New",monospace; font-size:11px; background:var(--bg-tertiary); padding:1px 4px; border-radius:4px; }
+  .cm-ai .kb { margin:7px 0 1px; background:var(--bg-tertiary); border:1px solid var(--border); border-radius:7px; padding:8px 10px; font-family:Consolas,"Courier New",monospace; font-size:11px; line-height:1.6; white-space:pre; }
+  .thinking { align-self:flex-start; display:flex; align-items:center; gap:7px; font-size:11.5px; opacity:.66; padding:5px 10px; border-radius:8px; background:var(--bg-secondary); border:1px solid var(--border); }
+  .thinking .spin { width:11px; height:11px; border-radius:50%; border:2px solid var(--text-3); border-top-color:transparent; animation:spin 1s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .chat-input { padding:10px 12px 12px; }
+  .chat-input .box { border:1px solid var(--border); background:var(--bg-secondary); border-radius:10px; padding:9px 10px; }
+  .chat-input .ph { font-size:12.5px; color:var(--text-3); height:44px; line-height:44px; }
+  .chat-input .row { display:flex; align-items:center; gap:8px; margin-top:7px; }
+  .chat-input .mode { font-size:11px; padding:3px 9px; border-radius:20px; border:1px solid var(--border); color:var(--text-2); background:var(--bg-surface); }
+  .chat-input .wb { font-size:10.5px; color:var(--text-3); }
+  .chat-input .send { margin-left:auto; width:28px; height:28px; border-radius:8px; border:0; background:var(--brand); color:#fff; display:flex; align-items:center; justify-content:center; }
+
+  .foot { padding:14px 26px 30px; font-size:12px; color:var(--text-2); line-height:1.9; }
+  .foot b { color:var(--text); }
+  .foot code { font-family:Consolas,"Courier New",monospace; font-size:11px; background:var(--bg-tertiary); padding:1px 5px; border-radius:4px; }
+</style>
+</head>
+<body data-theme="light">
+
+<!-- 全局演示条 -->
+<div class="demo-bar">
+  <span class="brand"><span class="logo"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg></span>GoGo</span>
+  <span class="sep"></span>
+  <span class="hint">IDE 工作台 · 交互原型（仅 deepseek-harness / main 对话页生效）</span>
+  <div class="theme-switch" id="themeSwitch">
+    <button data-theme-value="light">浅色</button>
+    <button data-theme-value="dark">深色</button>
+    <button data-theme-value="warm">暖色</button>
+  </div>
+  <span class="demo-note">主题切换跟随 GoGo 三套真实色值</span>
+</div>
+
+<!-- ============ 视图 1：deepseek-harness 对话页 ============ -->
+<section class="view on" id="view-chat">
+  <div class="chatpage">
+    <div class="cp-nav">
+      <div class="n on"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>新建对话</div>
+      <div class="n"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>任务中心</div>
+      <div class="n"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>工作流</div>
+      <div class="n"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="18" height="12" rx="2"/><circle cx="9" cy="12" r="1.5" fill="currentColor"/><circle cx="15" cy="12" r="1.5" fill="currentColor"/><path d="M9 3l3 2 3-2"/><path d="M9 17h6"/></svg>智能体</div>
+      <div class="n"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>员工</div>
+      <div class="n ide" id="navIdeEntry" title="进入 IDE 工作台"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 7l6-4 12 9-6 4L3 7z"/><path d="M9 3v14M15 12l6 4"/></svg>IDE</div>
+    </div>
+
+    <div class="cp-body">
+      <div class="cp-titlebar">
+        <span class="t">帮我启动这个项目</span>
+        <span class="badge">main</span>
+        <span class="spacer"></span>
+        <button class="ide-entry" id="ideEntryBtn">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M3 7l6-4 12 9-6 4L3 7z"/><path d="M9 3v14M15 12l6 4"/></svg>
+          IDE
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17L17 7M9 7h8v8"/></svg>
+        </button>
+      </div>
+
+      <div class="cp-msgs">
+        <div class="m-user">帮我启动这个项目</div>
+        <div class="m-ai">
+          <div class="who">
+            <span class="av"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="11" rx="2.5"/><path d="M9 11.2h6M9 14h3.6"/></svg></span>
+            deepseek-harness · 10-09 22:59
+          </div>
+          我先看一下项目结构和入口。<span class="tools"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a4 4 0 00-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 005.4-5.4L15 12l-3-3 2.7-2.7z"/></svg>Ran 17 tools</span>
+        </div>
+        <div class="m-ai">
+          <b>项目已启动成功</b><br>
+          访问地址: <code>http://localhost:5173/</code> (HTTP 200 已验证, Vite dev server 在后台运行中)
+          <h4>项目情况</h4>
+          <ul>
+            <li>类型: React 18 + TypeScript + Vite 5 前端（智能问答界面/数据分析可视化），依赖已装好，无需重新 install</li>
+            <li>启动命令: <code>npm run dev</code>（已在后台跑，监听 0.0.0.0:5173）</li>
+            <li>代理配置: <code>/api/deepseek</code> → <code>https://api.deepseek.com/v1</code>（API Key 由客户端代码携带，密钥硬编码在 src 里的话注意别推到公开仓库）</li>
+          </ul>
+          <h4>其他启动方式</h4>
+          <ul>
+            <li>生产预览: <code>npm run build</code> → <code>npm run preview</code>（或 <code>node server.js</code>，端口 8888，需先 build 出 dist）</li>
+            <li>Docker: <code>docker compose -f docker/docker-compose.yml up -d</code>（映射 8888:80）</li>
+          </ul>
+          <h4>你可能要留意的两点</h4>
+          <ol style="margin:4px 0;padding-left:18px;">
+            <li><code>server.js</code> 里硬编码了 DeepSeek API Key，建议改成只读环境变量 <code>DEEPSEEK_API_KEY</code>，并轮换该密钥（已进过 git 历史的话）。</li>
+            <li>仓库里还有 <code>voice-backend/</code>、<code>shuda-dual-mode/</code> 两个子目录，本次没启；如果它们也需要跑，告诉我，我再单独看。</li>
+          </ol>
+          需要我停掉开发服务器，或者顺带帮你把 API Key 那处改造一下吗?
+        </div>
+      </div>
+
+      <div class="cp-input">
+        <div class="box">输入消息，@ 提及员工，# 引用文件</div>
+        <div class="row">
+          <span>deepseek-flash-</span>
+          <span style="display:flex;align-items:center;gap:5px;"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>帮我批准</span>
+          <span class="mode">更多</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="cp-agent">
+      <div class="tabs">
+        <div class="tab on">Agent</div><div class="tab">产物</div><div class="tab">平台</div>
+      </div>
+      <div class="body">
+        <div class="agent-card">
+          <div class="hd">
+            <span class="av"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="11" rx="2.5"/><path d="M9 11.2h6M9 14h3.6"/></svg></span>
+            <span>
+              <div class="nm">deepseek-harness <span class="main">main</span></div>
+              <div class="desc">默认主智能体: 问答、改代码、编排任务。</div>
+            </span>
+          </div>
+        </div>
+        <div class="stat-grid">
+          <div class="stat"><div class="v">4</div><div class="k">Skills</div></div>
+          <div class="stat"><div class="v">26</div><div class="k">Tools</div></div>
+          <div class="stat"><div class="v">0</div><div class="k">Knowledge</div></div>
+          <div class="stat"><div class="v">1</div><div class="k">MCP</div></div>
+        </div>
+        <div class="skill-list">
+          <div class="s"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z"/></svg>byted-ark-seedream-skill</div>
+          <div class="s"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z"/></svg>deep-research</div>
+          <div class="s"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z"/></svg>preset-role-assistant</div>
+          <div class="s"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2l2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4L4.2 7.7l5.4-.8L12 2z"/></svg>skill-creator</div>
+        </div>
+        <div class="ctx">
+          上下文
+          <div class="bar"><i></i></div>
+          <div class="num"><span>16.3K / 256K tokens</span><span style="color:var(--text-2);">6%</span></div>
+        </div>
+        <div class="stat"><div class="v" style="font-size:12px;">运行统计</div><div class="k">本会话</div></div>
+        <div class="deposit">
+          <button>记录过程</button>
+          <button>沉淀经验</button>
+          <button class="main">反思</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 视图 2：IDE 工作台 ============ -->
+<section class="view" id="view-ide">
+  <div class="ide">
+    <div class="ide-top">
+      <button class="back" id="ideBack"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>返回对话</button>
+      <span class="title"><span class="ide-tag">IDE</span>deepseek-harness · 编码工作台</span>
+      <span class="spacer"></span>
+      <span class="ws">D:\Myproject\smart-qa-v2.0-main</span>
+      <span class="state"><span class="dot"></span>引擎运行中 :18080</span>
+      <button class="new">新对话</button>
+    </div>
+
+    <div class="ide-body">
+      <!-- 左：openvscode-server 嵌入区 -->
+      <div class="vsc">
+        <div class="vsc-activity">
+          <svg class="on" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l6-4 12 9-6 4L3 7z"/><path d="M9 3v14M15 12l6 4"/></svg>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7l4-3 12 9-4 3L4 7z"/><path d="M8 4v14M16 13l4 3"/></svg>
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 21h10"/></svg>
+        </div>
+
+        <div class="vsc-tree">
+          <div class="lbl">资源管理器</div>
+          <div class="tr"><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">smart-qa-v2.0-main</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">api</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">deepseek.js</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">annotations.js</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">docker</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">docker-compose.yml</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">Dockerfile</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">nginx.conf</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">docs</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">scripts</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">一键部署.ps1</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">更新DeepSeekAPIKey.js</span></div>
+          <div class="tr sel"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">server.js</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">shuda-dual-mode</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">src</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">components</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">pages</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">App.tsx</span></div>
+          <div class="tr"><span class="ind" style="width:28px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">main.tsx</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">voice-backend</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">vite.config.ts</span></div>
+          <div class="tr"><span class="ind" style="width:14px;"></span><span class="fi"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">package.json</span></div>
+        </div>
+
+        <div class="vsc-ed">
+          <div class="vsc-tabs">
+            <div class="vsc-tab act"><span class="fi" style="opacity:.8;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span>server.js<span class="x"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+            <div class="vsc-tab"><span class="fi" style="opacity:.8;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span>更新DeepSeekAPIKey.js<span class="x"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+          </div>
+          <div class="vsc-code"><span class="ln">1</span><span class="tok-k">import</span> http <span class="tok-k">from</span> <span class="tok-s">'http'</span>;
+<span class="ln">2</span><span class="tok-k">import</span> https <span class="tok-k">from</span> <span class="tok-s">'https'</span>;
+<span class="ln">3</span><span class="tok-k">import</span> fs <span class="tok-k">from</span> <span class="tok-s">'fs'</span>;
+<span class="ln">4</span><span class="tok-k">import</span> path <span class="tok-k">from</span> <span class="tok-s">'path'</span>;
+<span class="ln">5</span><span class="tok-k">import</span> { fileURLToPath } <span class="tok-k">from</span> <span class="tok-s">'url'</span>;
+<span class="ln">6</span>
+<span class="ln">7</span><span class="tok-k">const</span> __filename = <span class="tok-f">fileURLToPath</span>(import.meta.url);
+<span class="ln">8</span><span class="tok-k">const</span> __dirname = path.<span class="tok-f">dirname</span>(__filename);
+<span class="ln">9</span>
+<span class="ln">10</span><span class="tok-k">const</span> PORT = process.env.PORT <span class="tok-p">||</span> <span class="tok-s">8888</span>;
+<span class="ln">11</span><span class="tok-k">const</span> HOST = <span class="tok-s">'0.0.0.0'</span>;
+<span class="ln">12</span><span class="tok-k">const</span> DIST_DIR = path.<span class="tok-f">join</span>(__dirname, <span class="tok-s">'dist'</span>);
+<span class="ln">13</span>
+<span class="ln">14</span><span class="tok-c">// DeepSeek API 配置</span>
+<span class="ln">15</span><span class="tok-k">const</span> DEEPSEEK_API_URL = <span class="tok-s">'https://api.deepseek.com'</span>;
+<span class="ln">16</span><span class="tok-c">// 优先使用环境变量，如果没有则使用默认值（用于开发环境）</span>
+<span class="ln">17</span><span class="tok-c">// 最新 API Key 参考: https://api-docs.deepseek.com/zh-cn/</span>
+<span class="ln">18</span><span class="tok-k">const</span> DEEPSEEK_API_KEY = process.env.DEEPSEEK_API_KEY <span class="tok-p">||</span> <span class="tok-s">'sk-****…'</span>;
+<span class="ln">19</span>
+<span class="ln">20</span><span class="tok-c">// MIME类型映射</span>
+<span class="ln">21</span><span class="tok-k">const</span> mimeTypes = {
+<span class="ln">22</span>  <span class="tok-s">'.html'</span>: <span class="tok-s">'text/html'</span>,
+<span class="ln">23</span>  <span class="tok-s">'.js'</span>: <span class="tok-s">'text/javascript'</span>,
+<span class="ln">24</span>  <span class="tok-s">'.css'</span>: <span class="tok-s">'text/css'</span>,
+<span class="ln">25</span>  <span class="tok-s">'.json'</span>: <span class="tok-s">'application/json'</span>,
+<span class="ln">26</span>  <span class="tok-s">'.png'</span>: <span class="tok-s">'image/png'</span>,
+<span class="ln">27</span>  <span class="tok-s">'.jpg'</span>: <span class="tok-s">'image/jpg'</span>,
+<span class="ln">28</span>  <span class="tok-s">'.gif'</span>: <span class="tok-s">'image/gif'</span>,
+<span class="ln">29</span>  <span class="tok-s">'.svg'</span>: <span class="tok-s">'image/svg+xml'</span>,
+<span class="ln">30</span>  <span class="tok-s">'.ico'</span>: <span class="tok-s">'image/x-icon'</span></div>
+          <div class="vsc-status">
+            <span class="st"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l-4 4 4 4M15 8l4 4-4 4"/></svg>main</span>
+            <span class="st">0 错误</span>
+            <span class="st">2 警告</span>
+            <span style="flex:1"></span>
+            <span class="st">Ln 18, Col 8</span>
+            <span class="st">UTF-8</span>
+            <span class="st">:18080</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 右：AI 对话面板（可拖拽宽度） -->
+      <div class="chat" id="chatPanel">
+        <div class="chat-divider" id="chatDivider"></div>
+        <div class="chat-idbar">
+          <span class="av"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="11" rx="2.5"/><path d="M9 11.2h6M9 14h3.6"/><circle cx="16.6" cy="11.2" r=".6" fill="currentColor" stroke="none"/></svg></span>
+          <span class="who">
+            <span class="nm">deepseek-harness <span class="main">main</span></span>
+            <span class="meta">默认主智能体 · 26 工具 · 4 技能</span>
+          </span>
+          <span class="state"><span class="dot"></span>运行中</span>
+        </div>
+
+        <div class="chat-msgs">
+          <div class="cm-user">帮我启动这个项目</div>
+          <div class="cm-ai">
+            <span style="font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">deepseek-harness · 10-09 22:59 · <span class="tools" style="font-size:10px;">Ran 17 tools</span></span>
+            我先看一下项目结构和入口。
+          </div>
+          <div class="cm-ai">
+            <b>项目已启动成功</b><br>
+            访问地址: <code>http://localhost:5173/</code> (HTTP 200 已验证, Vite dev server 在后台运行中)
+            <h4>项目情况</h4>
+            <ul style="margin:4px 0;padding-left:16px;">
+              <li>类型: React 18 + TypeScript + Vite 5 前端，依赖已装好，无需重新 install</li>
+              <li>启动命令: <code>npm run dev</code>（已在后台跑，监听 0.0.0.0:5173）</li>
+              <li>代理配置: <code>/api/deepseek</code> → <code>https://api.deepseek.com/v1</code></li>
+            </ul>
+            <h4>你可能要留意的两点</h4>
+            <ol style="margin:4px 0;padding-left:16px;">
+              <li><code>server.js</code> 第 18 行硬编码了 DeepSeek API Key，建议改成只读环境变量 <code>DEEPSEEK_API_KEY</code>，并轮换该密钥。</li>
+              <li><code>voice-backend/</code>、<code>shuda-dual-mode/</code> 两个子目录本次没启，需要的话我再单独看。</li>
+            </ol>
+            需要我停掉开发服务器，或者顺带帮你把 API Key 那处改造一下吗?
+          </div>
+        </div>
+
+        <div class="chat-input">
+          <div class="box">
+            <div class="ph">向 deepseek-harness 描述你想改的代码…</div>
+            <div class="row">
+              <span class="mode">Auto 模式</span>
+              <span class="wb">工作区已绑定：D:\Myproject\smart-qa-v2.0-main</span>
+              <span class="send"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="foot">
+  <b>交互说明：</b>
+  ① 顶部「浅色 / 深色 / 暖色」为原型演示用主题切换，色值全部取自 GoGo 真实主题变量（<code>variables.css</code>），实现后 IDE 页自动跟随 GoGo 全局主题；
+  ② 对话页标题栏的 <b>IDE ↗</b> 按钮与左侧导航「IDE」即为入口——仅 deepseek-harness（<code>main</code>）的对话页出现，进入左侧文件树 + 编辑器、右侧对话的编码工作台；点「返回对话」可切回普通对话页；
+  ③ 右侧对话面板可<b>拖拽左边缘调整宽度</b>（280–640px），宽度会记住（localStorage）；
+  ④ 文件树与编辑器为 deepseek-harness 当前打开项目的真实结构（<code>D:\Myproject\smart-qa-v2.0-main</code>，含 <code>api/deepseek.js</code>、<code>docker/</code>、<code>scripts/一键部署.ps1</code>、<code>voice-backend/</code>、<code>shuda-dual-mode/</code> 等）；编辑器中打开的 <code>server.js</code> 为真实代码（API Key 已打码），右侧对话示例与它呼应（"帮我启动这个项目" + API Key 提醒）。
+</div>
+
+<script>
+(function () {
+  // ---- 主题切换 ----
+  var root = document.body
+  var savedTheme = localStorage.getItem('gogo-ide-demo-theme') || 'light'
+  root.dataset.theme = savedTheme
+  var themeBtns = document.querySelectorAll('#themeSwitch button')
+  function syncThemeBtns() {
+    themeBtns.forEach(function (b) {
+      b.classList.toggle('on', b.dataset.themeValue === root.dataset.theme)
+    })
+  }
+  themeBtns.forEach(function (b) {
+    b.addEventListener('click', function () {
+      root.dataset.theme = b.dataset.themeValue
+      localStorage.setItem('gogo-ide-demo-theme', b.dataset.themeValue)
+      syncThemeBtns()
+    })
+  })
+  syncThemeBtns()
+
+  // ---- 视图切换（对话页 <-> IDE 工作台） ----
+  var chatView = document.getElementById('view-chat')
+  var ideView = document.getElementById('view-ide')
+  function showView(which) {
+    chatView.classList.toggle('on', which === 'chat')
+    ideView.classList.toggle('on', which === 'ide')
+    window.scrollTo(0, 0)
+  }
+  document.getElementById('ideEntryBtn').addEventListener('click', function () { showView('ide') })
+  document.getElementById('navIdeEntry').addEventListener('click', function () { showView('ide') })
+  document.getElementById('ideBack').addEventListener('click', function () { showView('chat') })
+
+  // ---- 对话面板拖拽宽度 ----
+  var panel = document.getElementById('chatPanel')
+  var divider = document.getElementById('chatDivider')
+  var MIN = 280, MAX = 640
+  var savedW = parseInt(localStorage.getItem('gogo-ide-chat-width') || '360', 10)
+  if (!isNaN(savedW)) panel.style.setProperty('--chat-w', Math.min(MAX, Math.max(MIN, savedW)) + 'px')
+
+  var dragging = false
+  divider.addEventListener('mousedown', function (e) {
+    dragging = true
+    e.preventDefault()
+    document.body.style.userSelect = 'none'
+  })
+  document.addEventListener('mousemove', function (e) {
+    if (!dragging) return
+    var rect = panel.parentElement.getBoundingClientRect()
+    var w = rect.right - e.clientX
+    w = Math.min(MAX, Math.max(MIN, w))
+    panel.style.setProperty('--chat-w', w + 'px')
+  })
+  document.addEventListener('mouseup', function () {
+    if (!dragging) return
+    dragging = false
+    document.body.style.userSelect = ''
+    var cur = parseInt(panel.style.getPropertyValue('--chat-w'), 10)
+    if (!isNaN(cur)) localStorage.setItem('gogo-ide-chat-width', String(cur))
+  })
+})();
+</script>
+</body>
+</html>

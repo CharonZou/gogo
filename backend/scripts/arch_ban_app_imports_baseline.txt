@@ -1,0 +1,2 @@
+# Baseline for arch_ban_app_imports (gogo core -> app.* imports).
+# This list may only shrink. New entries require an ARCHITECTURE.md waiver.

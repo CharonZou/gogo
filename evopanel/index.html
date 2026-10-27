@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>GoGo</title>
+  <link rel="icon" href="/images/logo.png" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    html, body { margin: 0; min-height: 100%; background: #f4f5fb; }
+    /* 隐藏原 GoGo boot-splash，改用 GoGo 自己的猫启动屏 + 登录引导 */
+    #boot-splash { display: none !important; }
+
+    /* ===== GoGo 猫启动屏 ===== */
+    #gogoSplash {
+      position: fixed; inset: 0; z-index: 100001; background: #faf9f7;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      transition: opacity .6s ease;
+    }
+    #gogoSplash.fade-out { opacity: 0; pointer-events: none; }
+    .gs-stage { width: 104px; height: 104px; margin-bottom: 24px; border-radius: 26px; overflow: hidden; box-shadow: 0 8px 24px rgba(255,166,25,.25); background: #fde8d4; }
+    .gs-stage img { width: 100%; height: 100%; object-fit: cover; object-position: 65% 55%; display: block; }
+    .gs-brand { font-size: 32px; font-weight: 700; color: #1a1a1a; letter-spacing: .02em; margin-bottom: 20px; }
+    .gs-dots { display: flex; gap: 8px; }
+    .gs-dots span { width: 8px; height: 8px; border-radius: 50%; background: #8a8a8e; animation: gsDotBounce 1.2s infinite ease-in-out; }
+    .gs-dots span:nth-child(2) { animation-delay: .15s; }
+    .gs-dots span:nth-child(3) { animation-delay: .3s; }
+    @keyframes gsDotBounce { 0%,80%,100% { transform: scale(.6); opacity: .4; } 40% { transform: scale(1); opacity: 1; } }
+
+    /* ===== GoGo 登录 / 引导覆盖层 ===== */
+    #loginOverlay {
+      position: fixed; inset: 0; z-index: 99999; background: #fafafa; color: #1a1a1a;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .lo-screen { display: none; flex-direction: column; align-items: center; text-align: center; width: 100%; max-width: 480px; padding: 24px; }
+    .lo-screen.active { display: flex; }
+    .lo-logo { width: 72px; height: 72px; border-radius: 20px; overflow: hidden; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(255,166,25,.25); background: #fde8d4; }
+    .lo-logo img { width: 100%; height: 100%; object-fit: cover; object-position: 65% 55%; display: block; }
+    .lo-title { font-size: 28px; font-weight: 700; margin-bottom: 12px; letter-spacing: -.01em; }
+    .lo-sub { font-size: 15px; color: #6b7280; line-height: 1.6; margin-bottom: 32px; }
+    .lo-btn { width: 100%; max-width: 480px; height: 52px; border: none; border-radius: 10px; background: #18181b; color: #fff;
+      font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; transition: background .2s, transform .1s; }
+    .lo-btn:hover { background: #27272a; }
+    .lo-btn:active { transform: scale(.99); }
+    .lo-link { margin-top: 24px; font-size: 14px; color: #9ca3af; cursor: pointer; text-decoration: none; }
+    .lo-link:hover { color: #6b7280; text-decoration: underline; }
+    .lo-card { width: 100%; max-width: 480px; background: rgba(0,0,0,.04); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 12px; cursor: pointer; transition: background .15s; }
+    .lo-card:hover { background: rgba(0,0,0,.07); }
+    .lo-avatar { width: 40px; height: 40px; border-radius: 50%; overflow: hidden; flex-shrink: 0; background: #d9d9d9; }
+    .lo-avatar svg { width: 100%; height: 100%; display: block; }
+    .lo-meta { flex: 1; display: flex; align-items: center; gap: 10px; min-width: 0; text-align: left; }
+    .lo-name { font-size: 15px; font-weight: 600; white-space: nowrap; }
+    .lo-badge { font-size: 12px; color: #6b7280; background: rgba(0,0,0,.06); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+    .lo-feats { width: 100%; max-width: 480px; margin-top: 22px; text-align: left; }
+    .lo-feat { display: flex; gap: 16px; padding: 6px 0; }
+    .lo-ic { width: 40px; height: 40px; border-radius: 10px; background: rgba(0,0,0,.05); display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; z-index: 1; color: #6b7280; }
+    .lo-feat:not(:last-child) .lo-ic::after { content: ""; position: absolute; left: 50%; top: 100%; width: 1px; height: 20px; background: #e5e7eb; transform: translateX(-50%); }
+    .lo-ft { font-size: 15.5px; font-weight: 600; margin-bottom: 4px; }
+    .lo-fd { font-size: 13.5px; color: #6b7280; line-height: 1.5; }
+    .lo-onb-actions { display: none; position: fixed; bottom: 36px; left: 0; right: 0; align-items: center; justify-content: space-between; padding: 0 24px; max-width: 560px; margin: 0 auto; }
+    .lo-back { background: none; border: none; color: #6b7280; font-size: 14px; font-family: inherit; cursor: pointer; padding: 10px 14px; border-radius: 8px; display: inline-flex; align-items: center; gap: 7px; }
+    .lo-back:hover { color: #1a1a1a; background: rgba(0,0,0,.04); }
+    .lo-next { background: #18181b; color: #fff; border: none; font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer; padding: 11px 22px; border-radius: 9px; }
+    .lo-next:hover { background: #27272a; }
+    .lo-startwrap { display: none; justify-content: center; padding: 18px 0 6px; width: 100%; }
+    .lo-toast { position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%) translateY(20px); background: #18181b; color: #fff; padding: 10px 20px; border-radius: 8px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 100000; }
+    .lo-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  </style>
+  <!-- entry: main.js via Vite -->
+</head>
+<body>
+
+  <!-- ===== GoGo logo 启动屏 ===== -->
+  <div id="gogoSplash">
+    <div class="gs-stage"><img src="/images/logo.png" alt="" /></div>
+    <div class="gs-brand">GoGo</div>
+    <div class="gs-dots"><span></span><span></span><span></span></div>
+  </div>
+
+  <!-- ===== GoGo 登录 / 引导三屏 ===== -->
+  <div id="loginOverlay">
+    <div class="lo-screen active" id="loLogin">
+      <div class="lo-logo"><img src="/images/logo.png" alt="" /></div>
+      <div class="lo-title" data-i18n="boot.loginTitle">登录以同步你的工作流</div>
+      <div class="lo-sub" data-i18n="boot.loginSub">登录以在所有设备间同步代理、群组、设置和上下文。</div>
+      <button class="lo-btn" style="margin-top:12px;background:var(--bg-secondary,#f0f0f0);color:var(--text-primary,#222);border:1px solid var(--border,#ddd)" onclick="loPasswordLogin()">
+        <span data-i18n="boot.passwordLogin">账号密码登录</span>
+      </button>
+      <div class="lo-link" onclick="loToast(window.gogoT && gogoT('boot.selfHostToast'))" data-i18n="boot.selfHostLink">连接到你自己的 GoGo 服务实例</div>
+    </div>
+
+    <div class="lo-screen" id="loOnboarding">
+      <div class="lo-logo"><img src="/images/logo.png" alt="" /></div>
+      <div class="lo-title" data-i18n="boot.onbTitle">登录以实现跨设备同步</div>
+      <div class="lo-sub" data-i18n="boot.loginSub">登录以在所有设备间同步代理、群组、设置和上下文。</div>
+      <div class="lo-card" onclick="loToast(window.gogoT && gogoT('boot.pickAccountToast'))">
+        <div class="lo-avatar">
+          <svg viewBox="0 0 42 42" xmlns="http://www.w3.org/2000/svg"><rect width="42" height="42" fill="#e5e5e5"/><circle cx="21" cy="16" r="8" fill="#3a3a3a"/><path d="M7 42c0-8 6.5-13 14-13s14 5 14 13z" fill="#3a3a3a"/></svg>
+        </div>
+        <div class="lo-meta"><span class="lo-name">CharonZou</span><span class="lo-badge" data-i18n="boot.freePlan">免费版</span></div>
+      </div>
+    </div>
+
+    <div class="lo-screen" id="loReady">
+      <div class="lo-logo"><img src="/images/logo.png" alt="" /></div>
+      <div class="lo-title" data-i18n="boot.readyTitle">准备好了就开始吧</div>
+      <div class="lo-sub" data-i18n="boot.readySub">我是你的助理管家。随时陪你思考、创作，帮你管理助理与群组</div>
+      <div class="lo-feats">
+        <div class="lo-feat">
+          <div class="lo-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9z"/></svg></div>
+          <div><div class="lo-ft" data-i18n="boot.feat1Title">创造 · 灵感即刻成真</div><div class="lo-fd" data-i18n="boot.feat1Body">想到就做到。一句话，助理就能上线</div></div>
+        </div>
+        <div class="lo-feat">
+          <div class="lo-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.8 4.6a5.5 5.5 0 0 0-7.8 0L12 5.6l-1-1a5.5 5.5 0 0 0-7.8 7.8l1 1L12 21l7.8-7.6 1-1a5.5 5.5 0 0 0 0-7.8z"/><path d="M3.5 12h4l2-3 3 6 2-3h6"/></svg></div>
+          <div><div class="lo-ft" data-i18n="boot.feat2Title">协作 · 与智能共进</div><div class="lo-fd" data-i18n="boot.feat2Body">在这里，人与助理一起工作。让生产力以最自然的方式流动</div></div>
+        </div>
+        <div class="lo-feat">
+          <div class="lo-ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></div>
+          <div><div class="lo-ft" data-i18n="boot.feat3Title">进化 · 越用越懂你</div><div class="lo-fd" data-i18n="boot.feat3Body">每次互动都让助理更懂你。不止响应，更在理解</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="lo-onb-actions" id="loOnboardingActions">
+      <button class="lo-back" onclick="loGoLogin()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg><span data-i18n="boot.back">返回</span></button>
+      <button class="lo-next" onclick="loGoReady()" data-i18n="boot.next">下一步</button>
+    </div>
+    <div class="lo-startwrap" id="loStartWrap">
+      <button class="lo-next" onclick="loEnter()" data-i18n="boot.start">开始</button>
+    </div>
+  </div>
+  <div class="lo-toast" id="loToast"></div>
+
+  <!-- 回收站浮动面板 -->
+  <div id="trashModal" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.3);align-items:center;justify-content:center;">
+    <div style="background:var(--bg-card,#fff);border-radius:16px;width:860px;max-height:85vh;overflow-y:auto;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.2);">
+    <div style="padding:24px 32px;height:100%;overflow-y:auto;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+        <h2 style="font-size:20px;font-weight:700;margin:0;color:var(--text-primary,#222)" data-i18n="boot.trashTitle">回收站</h2>
+        <span onclick="gogoCloseTrash()" style="cursor:pointer;opacity:.5;font-size:22px;line-height:1;color:var(--text-primary,#222)">&times;</span>
+      </div>
+      <p style="color:var(--text-secondary,#888);font-size:14px;margin:0 0 24px" data-i18n="boot.trashSub">归档的会话保留在这里，可以恢复到原工作区，也可以彻底删除。</p>
+      <div style="display:flex;gap:10px;margin-bottom:40px;">
+        <div style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border:1px solid var(--border,#ddd);border-radius:10px;background:var(--bg-card,#fff)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary,#999)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" placeholder="搜索会话..." data-i18n-placeholder="boot.searchSessions" style="flex:1;border:none;outline:none;background:transparent;font-size:14px;color:var(--text-primary,#222)">
+        </div>
+        <button onclick="gogoShowTrash()" style="display:flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;border:1px solid var(--border,#ddd);background:var(--bg-card,#fff);color:var(--text-primary,#222);font-size:13px;cursor:pointer">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>
+          <span data-i18n="boot.refresh">刷新</span>
+        </button>
+        <button onclick="gogoEmptyTrash()" style="display:flex;align-items:center;gap:6px;padding:10px 16px;border-radius:10px;border:1px solid #e74c3c40;background:transparent;color:#e74c3c;font-size:13px;cursor:pointer">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          <span data-i18n="boot.emptyTrash">清空回收站</span>
+        </button>
+      </div>
+      <div id="trash-archived-list" style="display:flex;flex-direction:column;padding:20px 0;">
+        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:40px 0;color:var(--text-secondary,#999)">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" opacity=".4">
+          <path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+        </svg>
+        <div style="font-size:16px;font-weight:500;margin-top:16px;color:var(--text-secondary,#666)" data-i18n="boot.trashEmpty">暂无归档会话</div>
+        <div style="font-size:14px;margin-top:8px" data-i18n="boot.trashEmptyHint">归档后的会话会显示在这里。</div>
+      </div>
+    </div>
+    </div>
+  </div>
+  </div>
+  <script>
+    // 内联脚本在模块作用域之外，文案统一走 i18n 全局桥（src/lib/i18n.js 启动时挂 window.gogoT）。
+    // 桥尚未就绪的极端情况退回中文原文，避免出现空白或 key。
+    function bt (key, params, zh) {
+      return window.gogoT ? window.gogoT(key, params) : zh
+    }
+    function trashTime (ms) {
+      var locale = document.documentElement.lang === 'en' ? 'en-US' : 'zh-CN'
+      return new Date(ms).toLocaleString(locale, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+    }
+    window.gogoShowTrash = function () {
+      var list = document.getElementById('trash-archived-list');
+      if (list) {
+        var archived = [];
+        try { archived = JSON.parse(localStorage.getItem('gogo_archived_sessions') || '[]'); } catch (e) {}
+        if (archived.length === 0) {
+          list.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 0;color:var(--text-secondary,#999)">' +
+            '<svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" opacity=".35"><path d="M3 6h18M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>' +
+            '<div style="font-size:16px;font-weight:500;margin-top:16px;color:var(--text-secondary,#666)">' + bt('boot.trashEmpty', null, '暂无归档会话') + '</div>' +
+            '<div style="font-size:13px;margin-top:6px">' + bt('boot.trashEmptyHintLong', null, '归档后的会话会显示在这里，可恢复或彻底删除。') + '</div></div>';
+        } else {
+          list.innerHTML = archived.map(function(item, idx) {
+            var name = item.name || item;
+            var key = item.key || item;
+            var time = item.time ? trashTime(item.time) : '';
+            return '<div style="display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border:1px solid var(--border,#eee);border-radius:12px;margin-bottom:8px;background:var(--bg-card,#fff)">' +
+              '<div style="display:flex;align-items:center;gap:12px">' +
+              '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary,#999)" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' +
+              '<div><div style="font-size:14px;font-weight:500;color:var(--text-primary,#222)">' + name + '</div>' +
+              '<div style="font-size:12px;color:var(--text-secondary,#999);margin-top:2px">' + time + '</div></div>' +
+              '</div>' +
+              '<div style="display:flex;gap:8px">' +
+              '<button onclick="gogoRestoreSession(\''+key+'\')" style="padding:6px 14px;border-radius:8px;border:1px solid var(--border,#ddd);background:var(--bg-card,#fff);font-size:13px;cursor:pointer;color:var(--text-primary,#222)">' + bt('boot.restore', null, '恢复') + '</button>' +
+              '<button onclick="gogoDeleteSession(\''+key+'\')" style="padding:6px 14px;border-radius:8px;border:1px solid #e74c3c30;background:transparent;color:#e74c3c;font-size:13px;cursor:pointer">' + bt('boot.deleteForever', null, '彻底删除') + '</button>' +
+              '</div></div>';
+          }).join('');
+        }
+      }
+      document.getElementById('trashModal').style.display = 'flex';
+    };
+    window.gogoCloseTrash = function () { document.getElementById('trashModal').style.display = 'none'; };
+    window.gogoRestoreSession = function (key) {
+      var archived = JSON.parse(localStorage.getItem('gogo_archived_sessions') || '[]');
+      archived = archived.filter(function(a){ return (a.key||a) !== key; });
+      localStorage.setItem('gogo_archived_sessions', JSON.stringify(archived));
+      window.gogoCloseTrash();
+      // 通知 React 重新加载会话列表，不刷新页面
+      window.dispatchEvent(new CustomEvent('gogo-restore-session'));
+    };
+    window.gogoEmptyTrash = function () {
+      var archived = JSON.parse(localStorage.getItem('gogo_archived_sessions') || '[]');
+      archived.forEach(function(a){ try { fetch('/api/chat/sessions/' + encodeURIComponent(a.key||a), { method: 'DELETE' }); } catch(e){} });
+      localStorage.setItem('gogo_archived_sessions', '[]');
+      window.gogoShowTrash();
+    };
+    window.gogoDeleteSession = function (key) {
+      // 彻底删除：调后端删除
+      try { fetch('/api/chat/sessions/' + encodeURIComponent(key), { method: 'DELETE' }); } catch (e) {}
+      var archived = JSON.parse(localStorage.getItem('gogo_archived_sessions') || '[]');
+      archived = archived.filter(function(a){ return (a.key||a) !== key; });
+      localStorage.setItem('gogo_archived_sessions', JSON.stringify(archived));
+      window.gogoShowTrash();
+    };
+  </script>
+
+  <!-- 创建项目弹窗 -->
+  <div id="createProjectModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:9999;align-items:center;justify-content:center">
+    <div style="background:var(--bg-card,#fff);border-radius:12px;padding:24px;width:440px;color:var(--text-primary,#222);font-family:inherit;box-shadow:0 20px 60px rgba(0,0,0,.2);border:1px solid var(--border,#e5e5e5)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px">
+        <div style="font-size:16px;font-weight:600" data-i18n="boot.createProject">创建项目</div>
+        <span onclick="gogoCloseCreateProject()" style="cursor:pointer;opacity:.5;font-size:20px;line-height:1">&times;</span>
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary,#888);margin-bottom:6px" data-i18n="boot.projectName">项目名称</div>
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:18px;background:var(--bg-input,#f7f7f7)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary,#999)" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <input id="createProjectName" placeholder="输入项目名称" data-i18n-placeholder="boot.projectNamePlaceholder" style="flex:1;background:transparent;border:none;outline:none;color:var(--text-primary,#222);font-size:14px">
+      </div>
+      <div style="font-size:13px;color:var(--text-secondary,#888);margin-bottom:6px" data-i18n="boot.localWorkDir">当前设备本地工作目录</div>
+      <div style="display:flex;align-items:center;gap:8px;border:1px solid var(--border,#ddd);border-radius:8px;padding:10px 12px;margin-bottom:24px;background:var(--bg-input,#f7f7f7);cursor:pointer" onclick="gogoPickFolder()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary,#999)" stroke-width="1.5"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        <span style="color:var(--text-secondary,#999);font-size:14px" data-i18n="boot.addLocalFolder">添加本地文件夹</span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:10px">
+        <button onclick="gogoCloseCreateProject()" style="padding:8px 18px;border-radius:8px;border:1px solid var(--border,#ddd);background:transparent;color:var(--text-primary,#222);cursor:pointer;font-size:14px" data-i18n="boot.cancel">取消</button>
+        <button onclick="gogoConfirmCreateProject()" style="padding:8px 18px;border-radius:8px;border:none;background:var(--accent,#4a7dff);color:#fff;cursor:pointer;font-size:14px" data-i18n="boot.createProject">创建项目</button>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.gogoShowCreateProject = function () {
+      document.getElementById('createProjectModal').style.display = 'flex';
+      setTimeout(function(){ document.getElementById('createProjectName').focus(); }, 50);
+    };
+    window.gogoCloseCreateProject = function () {
+      document.getElementById('createProjectModal').style.display = 'none';
+    };
+    window.gogoPickFolder = function () {
+      alert(bt('boot.pickFolderHint', null, '请选择本地文件夹（开发模式占位）'));
+    };
+    window.gogoConfirmCreateProject = function () {
+      var name = document.getElementById('createProjectName').value.trim();
+      if (!name) { alert(bt('boot.projectNameRequired', null, '请输入项目名称')); return; }
+      // TODO: 添加到项目列表
+      alert(bt('boot.createdProjectHint', { name: name }, '创建项目：' + name + '（开发模式占位）'));
+      window.gogoCloseCreateProject();
+    };
+    document.getElementById('createProjectModal').addEventListener('click', function (e) {
+      if (e.target === this) window.gogoCloseCreateProject();
+    });
+  </script>
+
+
+  <!-- 原 GoGo 应用壳（被 #loginOverlay 覆盖，点「开始」后露出） -->
+  <div id="app">
+    <aside id="app-shell-aside" aria-label="主导航" data-i18n-aria-label="shell.navMain"></aside>
+    <div id="main-col">
+      <div id="update-banner" class="update-banner update-banner-hidden"></div>
+      <div id="gw-banner" class="gw-banner gw-banner-hidden"></div>
+      <div id="chat-persistent-host" hidden></div>
+      <main id="content"></main>
+    </div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+
+  <script>
+  (function () {
+    // 猫启动屏：2.5s 后淡出，露出登录引导
+    setTimeout(function () {
+      var s = document.getElementById('gogoSplash');
+      if (!s) return;
+      s.classList.add('fade-out');
+      setTimeout(function () { s.style.display = 'none'; }, 600);
+    }, 2500);
+
+    function $(id) { return document.getElementById(id); }
+    function show(id) {
+      ['loLogin', 'loOnboarding', 'loReady'].forEach(function (s) { $(s).classList.remove('active'); });
+      $(id).classList.add('active');
+      $('loOnboardingActions').style.display = (id === 'loOnboarding') ? 'flex' : 'none';
+      $('loStartWrap').style.display = (id === 'loReady') ? 'flex' : 'none';
+    }
+    window.loGoOnboarding = function () { show('loOnboarding'); };
+        (function () {
+      var h = window.location.hash || '';
+      var m = h.match(/auth\/callback[^#]*token=([^&]+)/);
+      if (m) {
+        var token = decodeURIComponent(m[1]);
+        try {
+          localStorage.setItem('GoGo_webui_token', token);
+          document.cookie = 'GoGo_webui_token=' + encodeURIComponent(token) + '; path=/; max-age=604800; SameSite=Lax';
+          sessionStorage.setItem('gogo_show_guide', '1');
+        } catch (e) {}
+      }
+      var wantGuide = false;
+      try { wantGuide = sessionStorage.getItem('gogo_show_guide') === '1'; } catch (e) {}
+      if (wantGuide) {
+        var gogoReady = function () {
+          var s = document.getElementById('gogoSplash');
+          if (s) s.style.display = 'none';
+          if (typeof window.loGoReady === 'function') window.loGoReady();
+          else if (typeof window.loGoOnboarding === 'function') window.loGoOnboarding();
+        };
+        setTimeout(gogoReady, 200);
+        setTimeout(gogoReady, 900);
+        setTimeout(gogoReady, 2000);
+        setTimeout(gogoReady, 4500);
+      }
+    })();
+    window.loLocalLogin = function () {
+      // 保留开发模式快速进入：localStorage 写入 dev token 后直接进工作台
+      try {
+        localStorage.setItem('GoGo_webui_token', 'dev-local-token');
+        document.cookie = 'GoGo_webui_token=dev-local-token; path=/; max-age=604800; SameSite=Lax';
+      } catch (e) {}
+      window.loEnter();
+    };
+    window.loPasswordLogin = function () {
+      // 账号密码登录：关闭引导层，进入 SPA 密码表单页（#/login）
+      window.loEnter();
+      window.location.hash = '/login';
+    };
+    window.loGoLogin = function () { show('loLogin'); };
+    window.loGoReady = function () { show('loReady'); };
+    window.loEnter = function () {
+      try { sessionStorage.removeItem('gogo_show_guide'); } catch (e) {}
+      var ov = $('loginOverlay');
+      ov.style.transition = 'opacity .4s';
+      ov.style.opacity = '0';
+      setTimeout(function () { ov.style.display = 'none'; }, 400);
+    };
+var tt;
+    window.loToast = function (msg) {
+      var t = $('loToast');
+      t.textContent = msg;
+      t.classList.add('show');
+      clearTimeout(tt);
+      tt = setTimeout(function () { t.classList.remove('show'); }, 1800);
+    };
+  })();
+  </script>
+
+</body>
+</html>

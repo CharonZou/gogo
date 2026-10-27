@@ -1,0 +1,1683 @@
+// SPDX-License-Identifier: PolyForm-Noncommercial-1.0.0
+// Copyright (c) 2026 开发者猫叔 (DeveloperCatUncle) · 商业使用需授权：COMMERCIAL-LICENSE.md
+// ================= 行程卡：按天切换的地图 + 时间线 =================
+// 模型规划行程时在正文里写一段 ```itinerary JSON（口径见 src/util/itinerary.js），这里画成一张卡片：
+//   上面一排「第1天 / 第2天」；左边是能拖、能缩放的地图（带照片和编号的钉子、两站之间的路线），
+//   右边按上午 / 中午 / 下午 / 晚上排地点卡片，相邻两站之间标距离和「导航」；另一个视图是纯时间线。
+// 坐标、照片、评分由服务端拿地点名去查（/api/geo/places）；底图瓦片和照片也走本机服务端（/api/geo/tile、/api/geo/img），
+// 页面自己不往外发请求。
+//
+// 跟 renderMd 怎么配合：renderMd 遇到 ```itinerary 调 cardHtml()，吐一个带完整数据的静态占位
+// （没点活之前它就是一份按天排好的文字，导出、复制、没加载这个文件的地方照样看得懂），
+// 这里用 MutationObserver 把占位点活成交互卡片。流式输出时正文每 100ms 整段重画一次，占位也跟着被重建——
+// 同一份数据（按内容算的 key）的那张活卡片直接搬进新占位：地图不重载，拖到哪还在哪，选的第几天也不变。
+//
+// 单独成文件同 svgfig.js：能在 Electron 里跑真 DOM 测试（test/frontend.js）。
+// 数据口径和坐标换算各有一份在 src/util/ 下，test/trip-card.js 拿同一批样例两边对答案。
+(function (root) {
+  "use strict";
+
+  // ---------------- 数据口径（跟 src/util/itinerary.js 同一套） ----------------
+  const LIMIT = { days: 14, stops: 15, name: 40, time: 16, note: 140, kind: 12, city: 20, addr: 60, title: 40, summary: 160 };
+  function str(v, n) {
+    if (typeof v === "number" && Number.isFinite(v)) v = String(v);
+    if (typeof v !== "string") return "";
+    const s = v.replace(/\s+/g, " ").trim();
+    return s.length > n ? s.slice(0, n - 1) + "…" : s;
+  }
+  function normStop(s) {
+    if (typeof s === "string") s = { name: s };
+    if (!s || typeof s !== "object") return null;
+    const name = str(s.name || s.place || s.title || s.poi, LIMIT.name);
+    if (!name) return null;
+    return {
+      name,
+      time: str(s.time || s.when || s.period || s.slot, LIMIT.time),
+      note: str(s.note || s.desc || s.description || s.tip || s.tips, LIMIT.note),
+      kind: str(s.kind || s.type || s.category, LIMIT.kind),
+      city: str(s.city, LIMIT.city),
+      addr: str(s.address || s.addr, LIMIT.addr),
+    };
+  }
+  // 截掉了几站 / 几天记在 more 上；data-tc 里存的是截过的，再收一遍时接着记，不然第二遍就忘了。
+  // 只认自己收过的那份（normalize 的 own）：模型在围栏里自己写个 "more"，不能让卡片说后面还有几站
+  const moreOf = (v) => (typeof v === "number" && Number.isInteger(v) && v > 0 && v < 1e4 ? v : 0);
+  const moreText = (unit, n) => (unit === "天"
+    ? `只显示前 ${LIMIT.days} 天，后面 ${n} 天没列出`
+    : `这天只显示前 ${LIMIT.stops} 站，后面 ${n} 站没列出`);
+  function normDay(d, own) {
+    if (Array.isArray(d)) d = { stops: d };
+    if (!d || typeof d !== "object") return null;
+    const raw = d.stops || d.items || d.places || d.spots || d.schedule || [];
+    const all = (Array.isArray(raw) ? raw : []).map(normStop).filter(Boolean);
+    const stops = all.slice(0, LIMIT.stops);
+    if (!stops.length) return null;
+    const day = {
+      label: str(d.label || (typeof d.day === "string" ? d.day : ""), 12),
+      title: str(d.title || d.theme || d.name, LIMIT.title),
+      summary: str(d.summary || d.desc || d.description || d.note, LIMIT.summary),
+      stops,
+    };
+    const more = all.length - stops.length + (own ? moreOf(d.more) : 0);
+    if (more) day.more = more;
+    return day;
+  }
+  // own：obj 是自己收过、存在 data-tc 里的那份
+  function normalize(obj, own) {
+    if (Array.isArray(obj)) obj = { days: obj };
+    if (!obj || typeof obj !== "object") return null;
+    const raw = obj.days || obj.itinerary || obj.plan || [];
+    const all = (Array.isArray(raw) ? raw : []).map((d) => normDay(d, own)).filter(Boolean);
+    const days = all.slice(0, LIMIT.days);
+    if (!days.length) return null;
+    const it = { title: str(obj.title || obj.name, LIMIT.title), city: str(obj.city || obj.destination, LIMIT.city), days };
+    const more = all.length - days.length + (own ? moreOf(obj.more) : 0);
+    if (more) it.more = more;
+    return it;
+  }
+  // 模型常漏的两处格式：收尾逗号、键名引号（kind:"商业街"）。只改字符串外面，字符串里一个字不动
+  const BARE_KEY = /[A-Za-z_$][\w$]*(?=\s*:)/y, TRAIL_COMMA = /,(?=\s*[}\]])/y;
+  function loosen(s) {
+    let out = "", last = "", inStr = false;
+    for (let i = 0; i < s.length; i++) {
+      const c = s[i];
+      if (inStr) {
+        out += c;
+        if (c === "\\") out += s[++i] || "";
+        else if (c === '"') { inStr = false; last = c; }
+        continue;
+      }
+      if (c === '"') inStr = true;
+      else if (c === ",") { TRAIL_COMMA.lastIndex = i; if (TRAIL_COMMA.test(s)) continue; }
+      else if ((last === "{" || last === ",") && /[A-Za-z_$]/.test(c)) {
+        BARE_KEY.lastIndex = i;
+        const m = BARE_KEY.exec(s);
+        if (m) { out += '"' + m[0] + '"'; i += m[0].length - 1; last = '"'; continue; }
+      }
+      out += c;
+      if (!/\s/.test(c)) last = c;
+    }
+    return out;
+  }
+  function parse(text) {
+    const s = String(text || "").trim();
+    if (!s) return null;
+    for (const t of [s, loosen(s)]) {
+      try { return normalize(JSON.parse(t)); } catch (e) { /* 再试下一种 */ }
+    }
+    return null;
+  }
+  // JSON 第一处语法错在第几个字符（解得开回 -1）。不读 JSON.parse 的报错：各家写法不一样，有的不带位置
+  function badAt(s) {
+    let i = 0;
+    const ws = () => { while (i < s.length && " \t\n\r".includes(s[i])) i++; };
+    const fail = () => { throw i; };
+    const lit = () => {
+      if (s[i] !== '"') fail();
+      for (i++; i < s.length; i++) {
+        const c = s[i];
+        if (c === '"') { i++; return; }
+        if (c === "\\") i++;
+        else if (c < " ") fail();
+      }
+      fail();
+    };
+    const val = () => {
+      ws();
+      const c = s[i];
+      if (c === "{" || c === "[") {
+        const end = c === "{" ? "}" : "]";
+        i++; ws();
+        if (s[i] === end) { i++; return; }
+        for (;;) {
+          if (end === "}") { ws(); lit(); ws(); if (s[i] !== ":") fail(); i++; }
+          val(); ws();
+          if (s[i] === ",") { i++; continue; }
+          if (s[i] === end) { i++; return; }
+          fail();
+        }
+      }
+      if (c === '"') return lit();
+      const m = /^(?:-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?|true|false|null)/.exec(s.slice(i, i + 64));
+      if (!m) fail();
+      i += m[0].length;
+    };
+    try { val(); ws(); if (i < s.length) fail(); return -1; }
+    catch (e) { if (typeof e === "number") return e; throw e; }
+  }
+  /** 围栏解不开时说一句哪儿不对（行号从围栏里第一行数起）；解得开回 "" */
+  function whyBad(text) {
+    const raw = String(text || "");
+    const s = raw.trim();
+    if (!s) return "里面是空的";
+    if (parse(s)) return "";
+    const t = loosen(s);
+    const at = badAt(t);
+    if (at < 0) return "里面没有能画的地点";
+    const lead = raw.slice(0, raw.length - raw.trimStart().length);
+    const line = (lead.match(/\n/g) || []).length + (t.slice(0, at).match(/\n/g) || []).length + 1;
+    return `第 ${line} 行格式不对`;
+  }
+  function segmentOf(time) {
+    const t = String(time || "").toLowerCase();
+    const m = t.match(/(\d{1,2})[:：点](\d{2})?/);
+    if (m) {
+      const h = +m[1];
+      if (h < 5) return "晚上";
+      if (h < 11) return "上午";
+      if (h < 13) return "中午";
+      if (h < 17) return "下午";
+      if (h < 19) return "傍晚";
+      return "晚上";
+    }
+    if (/清晨|早上|早晨|上午|早饭|早餐|morning|breakfast/.test(t)) return "上午";
+    if (/中午|午饭|午餐|noon|lunch/.test(t)) return "中午";
+    if (/下午|afternoon/.test(t)) return "下午";
+    if (/傍晚|黄昏|日落|sunset|dusk/.test(t)) return "傍晚";
+    if (/晚|夜|evening|night|dinner/.test(t)) return "晚上";
+    return "";
+  }
+  const dayLabel = (d, i) => d.label || `第${i + 1}天`;
+
+  // ---------------- 坐标（跟 src/util/geo-coords.js 同一套） ----------------
+  const A = 6378245.0, EE = 0.00669342162296594323;
+  const IN = [[79.4462, 49.2204, 96.33, 42.8899], [109.6872, 54.1415, 135.0002, 39.3742], [73.1246, 42.8899, 124.143255, 29.5297],
+    [82.9684, 29.5297, 97.0352, 26.7186], [97.0253, 29.5297, 124.367395, 20.4127], [107.975793, 20.4127, 111.744104, 17.871542]];
+  const OUT = [[119.921265, 25.398623, 122.497559, 21.785006], [101.8652, 22.284, 106.665, 20.0988], [106.4525, 21.5422, 108.051, 20.4878],
+    [109.0323, 55.8175, 119.127, 50.3257], [127.4568, 55.8175, 137.0227, 49.5574], [131.2662, 44.8922, 137.0227, 42.5692]];
+  const hit = (rects, lng, lat) => rects.some(([w, n, e, s]) => lng >= w && lng <= e && lat >= s && lat <= n);
+  const inChina = (lng, lat) => hit(IN, lng, lat) && !hit(OUT, lng, lat);
+  function tLat(x, y) {
+    let r = -100 + 2 * x + 3 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+    r += ((20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2) / 3;
+    r += ((20 * Math.sin(y * Math.PI) + 40 * Math.sin((y / 3) * Math.PI)) * 2) / 3;
+    r += ((160 * Math.sin((y / 12) * Math.PI) + 320 * Math.sin((y * Math.PI) / 30)) * 2) / 3;
+    return r;
+  }
+  function tLng(x, y) {
+    let r = 300 + x + 2 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+    r += ((20 * Math.sin(6 * x * Math.PI) + 20 * Math.sin(2 * x * Math.PI)) * 2) / 3;
+    r += ((20 * Math.sin(x * Math.PI) + 40 * Math.sin((x / 3) * Math.PI)) * 2) / 3;
+    r += ((150 * Math.sin((x / 12) * Math.PI) + 300 * Math.sin((x / 30) * Math.PI)) * 2) / 3;
+    return r;
+  }
+  function wgsToGcj(lng, lat) {
+    if (!inChina(lng, lat)) return [lng, lat];
+    let dLat = tLat(lng - 105, lat - 35), dLng = tLng(lng - 105, lat - 35);
+    const rad = (lat / 180) * Math.PI;
+    let magic = Math.sin(rad);
+    magic = 1 - EE * magic * magic;
+    const sq = Math.sqrt(magic);
+    dLat = (dLat * 180) / (((A * (1 - EE)) / (magic * sq)) * Math.PI);
+    dLng = (dLng * 180) / ((A / sq) * Math.cos(rad) * Math.PI);
+    return [lng + dLng, lat + dLat];
+  }
+  function gcjToWgs(lng, lat) {
+    if (!inChina(lng, lat)) return [lng, lat];
+    let x = lng, y = lat;
+    for (let i = 0; i < 5; i++) {
+      const [gx, gy] = wgsToGcj(x, y);
+      x -= gx - lng;
+      y -= gy - lat;
+    }
+    return [x, y];
+  }
+  function convert(lng, lat, from, to) {
+    if (from === to) return [lng, lat];
+    if (from === "wgs84" && to === "gcj02") return wgsToGcj(lng, lat);
+    if (from === "gcj02" && to === "wgs84") return gcjToWgs(lng, lat);
+    return [lng, lat];
+  }
+  function distance(lng1, lat1, lng2, lat2) {
+    const R = 6371008.8, r = Math.PI / 180;
+    const dLat = (lat2 - lat1) * r, dLng = (lng2 - lng1) * r;
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(lat1 * r) * Math.cos(lat2 * r) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  }
+
+  // ---------------- 小工具 ----------------
+  const ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ESC[c]);
+  /** renderMd 先把整段正文 HTML 转义过了，围栏里的 JSON 要先解回来 */
+  const unescHtml = (s) => String(s || "").replace(/&(lt|gt|quot|#39|amp);/g, (_, k) => ({ lt: "<", gt: ">", quot: '"', "#39": "'", amp: "&" }[k]));
+  function hashKey(s) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    return (h >>> 0).toString(36) + s.length.toString(36);
+  }
+  function fmtDist(m) {
+    if (!Number.isFinite(m)) return "";
+    return m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)} 米` : `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} 公里`;
+  }
+  function fmtDur(s) {
+    if (!Number.isFinite(s) || s <= 0) return "";
+    const min = Math.max(1, Math.round(s / 60));
+    return min < 60 ? `约 ${min} 分钟` : `约 ${Math.floor(min / 60)} 小时${min % 60 ? ` ${min % 60} 分` : ""}`;
+  }
+  const MODE = { walking: "步行", driving: "驾车", line: "直线" };
+  const svg = (body, cls) => `<svg class="${cls || "tc-legi"}" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`;
+  const ICON = {
+    walking: svg('<circle cx="13" cy="4.5" r="1.8"/><path d="m9.5 21 2.5-6 3 3v3M8 11.5l3-3.5 3.5 1 2 3.5M12 8.5 11 15"/>'),
+    driving: svg('<path d="M4 16v-4l2.2-5h11.6L20 12v4zM4 12h16"/><circle cx="7.5" cy="16.5" r="1.6"/><circle cx="16.5" cy="16.5" r="1.6"/>'),
+    line: svg('<path d="M5 19 19 5" stroke-dasharray="2.5 3"/>'),
+    nav: svg('<path d="M3.5 10.5 20.5 3.5l-7 17-2.2-7.8z"/>', "tc-navi"),
+  };
+  const fx = (n) => (+n).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+  const imgUrl = (u) => "/api/geo/img?u=" + encodeURIComponent(u);
+
+  // ---------------- 导航链接 ----------------
+  const WALK_M = 2000;   // 跟服务端查路线同一条线：两公里内按步行
+  // 段间菜单给的四种走法。两家文档上写明了的才给：高德 uri.amap.com/navigation 的 mode=walk/bus/ride/car，
+  // Google 地图 maps/dir 的 travelmode=walking/transit/bicycling/driving。Google 的 two-wheeler（摩托）国内没有对应，不给
+  const NAV_MODES = [["walking", "步行"], ["transit", "公交"], ["bicycling", "骑行"], ["driving", "驾车"]];
+  const AMAP_MODE = { walking: "walk", transit: "bus", bicycling: "ride", driving: "car" };
+  // 一天最多几站能整条打开：高德网页版实测 15 站照样出路线；Google 的途经点最多 8 个
+  const DAY_MAX = { amap: 15, google: 10 };
+  /** 给 Google 地图的点：国内给 GCJ-02（Google 的国内路网就是这套，给 WGS-84 会偏几百米），国外给 WGS-84 */
+  function gPt(p) {
+    const w = convert(p.lng, p.lat, p.datum, "wgs84");
+    const q = inChina(w[0], w[1]) ? convert(p.lng, p.lat, p.datum, "gcj02") : w;
+    return `${fx(q[1])},${fx(q[0])}`;
+  }
+  const bareCity = (c) => String(c || "").trim().replace(/(特别行政区|自治州|自治区|地区|盟|市|省|县|区)$/, "");
+  /**
+   * 给 Google 地图的地点写「站名, 城市」：只给坐标，它会把每一站换成离那儿最近的商户名（天坛公园成了「月季园」）；
+   * 只给站名又可能跑去别的城市（「故宫博物院」搜到台北）。不知道在哪个城市才退回坐标。
+   */
+  function gPlace(p) {
+    const n = String(p.name || "").replace(/\|/g, " ").trim(), c = bareCity(p.city);
+    if (!n || !c) return gPt(p);
+    return n.includes(c) ? n : `${n}, ${String(p.city).trim()}`;
+  }
+  const amapOk = (prov, ws) => prov !== "google" && ws.every(([x, y]) => inChina(x, y));
+  /** 两站之间：都在国内去高德（GCJ-02），否则去 Google 地图。prov === "google"：人选了 Google，国内也给 Google */
+  function legNavUrl(a, b, mode, prov) {
+    const pa = convert(a.lng, a.lat, a.datum, "wgs84"), pb = convert(b.lng, b.lat, b.datum, "wgs84");
+    // 没查到路线（国外、没填 Key）只有直线：跟查路线时一样，两公里内按步行，别让几百米也去开车
+    if (!AMAP_MODE[mode]) mode = distance(pa[0], pa[1], pb[0], pb[1]) < WALK_M ? "walking" : "driving";
+    if (amapOk(prov, [pa, pb])) {
+      const ga = convert(a.lng, a.lat, a.datum, "gcj02"), gb = convert(b.lng, b.lat, b.datum, "gcj02");
+      return `https://uri.amap.com/navigation?from=${fx(ga[0])},${fx(ga[1])},${encodeURIComponent(a.name)}&to=${fx(gb[0])},${fx(gb[1])},${encodeURIComponent(b.name)}`
+        + `&mode=${AMAP_MODE[mode] || "car"}&coordinate=gaode&callnative=1`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(gPlace(a))}&destination=${encodeURIComponent(gPlace(b))}&travelmode=${mode}`;
+  }
+  /**
+   * 「导航到这」：只给终点。两家都是不给起点就从手机当前位置出发；走法也不给，让人到导航应用里自己选。
+   */
+  function stopNavUrl(p, prov) {
+    const w = convert(p.lng, p.lat, p.datum, "wgs84");
+    if (amapOk(prov, [w])) {
+      const g = convert(p.lng, p.lat, p.datum, "gcj02");
+      return `https://uri.amap.com/navigation?to=${fx(g[0])},${fx(g[1])},${encodeURIComponent(p.name)}&coordinate=gaode&callnative=1`;
+    }
+    return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(gPlace(p))}`;
+  }
+  /** 「发到手机」的二维码：服务端只编上面这几个函数生成的链接 */
+  const qrUrl = (u) => "/api/geo/qr?u=" + encodeURIComponent(u);
+  const QR_BIG = 600;
+  /**
+   * 一整天的路线，每站带着名字。国内给高德，国外（或者人选了 Google）给 Google 地图。
+   * 高德两三站走 uri.amap.com（手机上直接拉起高德 App），它只认一个途经点，而且一按步行就把途经点丢了，
+   * 所以只有两站、又在两公里内才按步行。四站以上走高德网页版的路线规划（via[0]、via[1]…排下去），
+   * 网页版也只有驾车带得了途经点；加 platform=pc 是因为手机打开它会跳去手机版，手机版只留第一个途经点。
+   * Google 每两站都在两公里内就按步行，否则开车。
+   */
+  function dayNavUrl(pts, prov) {
+    if (pts.length < 2) return "";
+    const wgs = pts.map((p) => convert(p.lng, p.lat, p.datum, "wgs84"));
+    const near = (i) => distance(wgs[i - 1][0], wgs[i - 1][1], wgs[i][0], wgs[i][1]) < WALK_M;
+    const last = pts.length - 1;
+    if (amapOk(prov, wgs)) {
+      if (pts.length > DAY_MAX.amap) return "";
+      const g = pts.map((p) => convert(p.lng, p.lat, p.datum, "gcj02"));
+      const ll = (i) => `${fx(g[i][0])},${fx(g[i][1])}`, nm = (i) => encodeURIComponent(pts[i].name);
+      if (pts.length <= 3) {
+        return `https://uri.amap.com/navigation?from=${ll(0)},${nm(0)}&to=${ll(last)},${nm(last)}${last === 2 ? `&via=${ll(1)},${nm(1)}` : ""}`
+          + `&mode=${last === 1 && near(1) ? "walk" : "car"}&coordinate=gaode&callnative=1`;
+      }
+      let u = `https://www.amap.com/dir?type=car&from[name]=${nm(0)}&from[lnglat]=${ll(0)}&to[name]=${nm(last)}&to[lnglat]=${ll(last)}`;
+      for (let i = 1; i < last; i++) u += `&via[${i - 1}][name]=${nm(i)}&via[${i - 1}][lnglat]=${ll(i)}`;
+      return u + "&platform=pc";
+    }
+    if (pts.length > DAY_MAX.google) return "";
+    const q = pts.map((p) => encodeURIComponent(gPlace(p)));
+    const walk = pts.every((p, i) => i === 0 || near(i));
+    return `https://www.google.com/maps/dir/?api=1&origin=${q[0]}&destination=${q[last]}${last > 1 ? "&waypoints=" + q.slice(1, -1).join("%7C") : ""}&travelmode=${walk ? "walking" : "driving"}`;
+  }
+  /** 链接是哪家的：卡片上写「在高德地图里打开」还是「Google 地图」 */
+  const navApp = (u) => (/^https:\/\/(uri|www)\.amap\.com\//.test(u) ? "高德地图" : "Google 地图");
+
+  // ---------------- 静态占位（renderMd 里用） ----------------
+  function staticHtml(it) {
+    const more = (unit, n) => (n ? `<div class="tc-smore">${esc(moreText(unit, n))}</div>` : "");
+    const days = it.days.map((d, i) => `<div class="tc-sday"><b>${esc(dayLabel(d, i))}${d.title ? " · " + esc(d.title) : ""}</b>`
+      + (d.summary ? `<div class="tc-ssum">${esc(d.summary)}</div>` : "")
+      + `<ol>${d.stops.map((s) => `<li>${s.time ? esc(s.time) + " · " : ""}<b>${esc(s.name)}</b>${s.note ? "：" + esc(s.note) : ""}</li>`).join("")}</ol>${more("站", d.more)}</div>`).join("");
+    return `<div class="tc-static">${it.title ? `<div class="tc-stitle">${esc(it.title)}</div>` : ""}${days}${more("天", it.more)}</div>`;
+  }
+  // 「让 AI 重写这段」只在主界面画：要有输入框能填。分享页、导出里没有输入框，按钮按不了就不画
+  const canRedo = () => typeof document !== "undefined" && typeof root.insertAtCursor === "function" && !!document.getElementById("input");
+  /** 填进输入框的那句话（不替人发出去，人看过、改过再自己发） */
+  const redoText = (why) => `行程卡${why}，没画成。请把那段 \`\`\`itinerary 重写成标准 JSON：键名和字符串都用英文双引号，字符串里的双引号前加反斜杠。`;
+  /** 解不开的那段：说一句哪儿不对，原文收起来，不把一大坨 JSON 甩在人脸上 */
+  function badHtml(raw) {
+    return `<div class="tc tc-bad"><div class="tc-badh">行程卡没画成：${esc(whyBad(raw))}</div>`
+      + `<details class="tc-raw"><summary>看原文</summary><pre><code>${esc(raw)}</code></pre></details>`
+      + (canRedo() ? `<button type="button" class="tc-redo">让 AI 重写这段</button>` : "") + `</div>`;
+  }
+  /**
+   * renderMd 遇到 ```itinerary 时调这个。code 是 HTML 转义过的围栏正文。
+   * 解不出来：还在往外吐字（open && live）给个「正在排行程」；停笔了就是「行程卡没画成」那一块。
+   */
+  function cardHtml(code, o) {
+    o = o || {};
+    let raw = unescHtml(code);
+    // 没闭合的围栏，结尾可能已经挂上收尾那三个反引号的前一两个：去掉再解，
+    // 不然 JSON 刚写完那一帧画出卡片，下一帧又退回「正在排行程」，再下一帧才回来
+    if (o.open) raw = raw.replace(/\n`{1,2}$/, "");
+    const it = parse(raw);
+    if (!it) {
+      if (!(o.open && o.live)) return badHtml(raw);
+      const n = (raw.match(/"name"\s*:/g) || []).length;
+      return `<div class="tc tc-pending"><span class="tc-spin" aria-hidden="true"></span>正在排行程…${n ? `<span class="tc-pn">已写 ${n} 站</span>` : ""}</div>`;
+    }
+    const json = JSON.stringify(it);
+    return `<div class="tc" data-tc-key="${hashKey(json)}" data-tc="${esc(json)}">${staticHtml(it)}</div>`;
+  }
+
+  /** 一张卡片（点没点活都行）按天排好的文字版：复制、导出用。没画成的那块贴原文 */
+  function staticOf(host) {
+    if (host.classList && host.classList.contains("tc-bad")) {
+      const c = host.querySelector("pre code");
+      return `<pre><code>${esc(c ? c.textContent : "")}</code></pre>`;
+    }
+    let it = null;
+    try { it = normalize(JSON.parse(host.dataset.tc || ""), true); } catch (e) { /* 下面退回原文字 */ }
+    return it ? staticHtml(it) : esc(host.textContent || "");
+  }
+
+  // ---------------- 跟服务端要数据 ----------------
+  let cfgP = null;
+  const getCfg = () => cfgP || (cfgP = fetch("/api/geo/config").then((r) => (r.ok ? r.json() : {})).catch(() => ({})));
+  /** 设置里改了地图那一节（比如刚填上高德 Key）：配置、查过的地点都作废，页面上的活卡片当场按新设置重查 */
+  let cfgGen = 0;
+  function resetConfig() {
+    cfgP = null;
+    cfgGen++;
+    placeMemo.clear();
+    for (const ws of live.values()) for (const w of ws) w.reload();
+  }
+  async function post(url, body) {
+    const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    let j = null;
+    try { j = await r.json(); } catch (e) { /* 下面按状态码说 */ }
+    if (!r.ok) throw new Error((j && j.error) || `HTTP ${r.status}`);
+    return j || {};
+  }
+  /**
+   * 查过的地点整页共用：同一份行程重新点活、两条消息提到同一个地方，都不再问服务端。
+   * 存的是服务端回的那一项：找到的 { ok: true, … }、确实没找到的 { ok: false, tried }。没查成的不存，下回接着查。
+   */
+  const placeMemo = new Map();
+  const pkey = (name, city) => city + "|" + name;
+  /** 补照片：地点对象 → 那一趟请求。两张卡片提到同一个地方只问一次 */
+  const photoAsk = new WeakMap();
+  const SRC_NAME = { amap: "高德地图", osm: "OpenStreetMap" };
+  const PHOTO_NAME = { amap: "高德地图", wikimedia: "Wikimedia", wikidata: "Wikidata" };
+  /** 「外滩」和「外滩」算同一个名字，空格、大小写不算差别 */
+  const sameName = (a, b) => String(a || "").replace(/\s+/g, "").toLowerCase() === String(b || "").replace(/\s+/g, "").toLowerCase();
+  /** 没找到时说问了谁：两家都问了才说「都没搜到」 */
+  function missText(tried) {
+    const t = Array.isArray(tried) ? tried : [];
+    if (t.includes("amap") && t.includes("osm")) return "高德地图和 OpenStreetMap 都没搜到";
+    if (t.length === 1 && t[0] === "osm") return "OpenStreetMap 没搜到";
+    if (t.length === 1 && t[0] === "amap") return "高德地图没搜到";
+    return "地图上没搜到";
+  }
+
+  // 「填高德 Key」那颗按钮只在主界面里、而且这人改得了服务器级设置时画：成员点进去是一页他看不到的设置
+  const canSetKey = () => typeof root.openModal === "function" && typeof root.amPlatformOwner === "function" && !!root.amPlatformOwner();
+
+  // ---------------- 地图和右边列表怎么摆 ----------------
+  // 拖过的宽窄、高矮、收没收起来记在本机，下一张卡片照这个摆。存不了（无痕窗口）就只管这一张。
+  const LAYOUT_KEY = "owb.tripcard.layout";
+  const PW = { min: 20, max: 65 }, MH = { min: 200, max: 900 };
+  const okPw = (v) => Number.isFinite(v) && v >= PW.min && v <= PW.max;
+  const okH = (v) => Number.isFinite(v) && v >= MH.min && v <= MH.max;
+  function loadLayout() {
+    try {
+      const v = JSON.parse(root.localStorage.getItem(LAYOUT_KEY) || "{}") || {};
+      return { pw: okPw(v.pw) ? v.pw : undefined, h: okH(v.h) ? v.h : undefined, fold: v.fold === true };
+    } catch (e) { return { fold: false }; }
+  }
+  function saveLayout(v) {
+    try { root.localStorage.setItem(LAYOUT_KEY, JSON.stringify(v)); } catch (e) { /* 存不了就只管这一张 */ }
+  }
+  // 国内的路线用哪家地图打开：默认高德，点过 Google 就记在本机，下一张卡片照这个来
+  const MAPS_KEY = "owb.tripcard.maps";
+  function loadProv() {
+    try { return root.localStorage.getItem(MAPS_KEY) === "google" ? "google" : "amap"; } catch (e) { return "amap"; }
+  }
+  function saveProv(v) {
+    try { root.localStorage.setItem(MAPS_KEY, v); } catch (e) { /* 存不了就只管这一张 */ }
+  }
+
+  // ---------------- 墨卡托 ----------------
+  const TS = 256;
+  const world = (z) => TS * 2 ** z;
+  const lngX = (lng, z) => ((lng + 180) / 360) * world(z);
+  const latY = (lat, z) => {
+    const s = Math.sin((Math.max(-85, Math.min(85, lat)) * Math.PI) / 180);
+    return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * world(z);
+  };
+  const xLng = (x, z) => (x / world(z)) * 360 - 180;
+  const yLat = (y, z) => {
+    const n = Math.PI - (2 * Math.PI * y) / world(z);
+    return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+  };
+
+  // ---------------- 活卡片 ----------------
+  function makeWidget(it, key) {
+    const el = document.createElement("div");
+    el.className = "tc-w";
+    const multi = it.days.length > 1;
+    // 宽的时候地图铺满整张卡片，天数浮在左上角、当天的地点浮在右边一栏；窄了（≤620px）上下摆。
+    // 「AI 排的」：去哪、几点是模型排的；坐标、照片是拿地名去地图上查的，每站底下写着查自哪一家
+    el.innerHTML = `<div class="tc-head"><div class="tc-ttl">${esc(it.title || (it.city ? it.city + "行程" : "行程"))}</div>`
+      + `<span class="tc-ai" title="去哪、几点由 AI 排，地点按名字去地图上查">AI 排的</span>`
+      + `<button type="button" class="tc-found" aria-expanded="false">正在找地点…</button>`
+      + `<div class="tc-views" role="tablist"><button type="button" role="tab" data-v="map">地图</button><button type="button" role="tab" data-v="timeline">时间线</button></div></div>`
+      + `<div class="tc-alert" hidden></div>`
+      + (it.more ? `<div class="tc-more">${esc(moreText("天", it.more))}</div>` : "")
+      + `<div class="tc-list" hidden></div>`
+      + `<div class="tc-stage"><div class="tc-tabs" role="tablist"${multi ? "" : " hidden"}>${it.days.map((d, i) => `<button type="button" role="tab" data-d="${i}">${esc(dayLabel(d, i))}</button>`).join("")}</div>`
+      + `<div class="tc-body"><div class="tc-map" tabindex="0" aria-label="行程地图，拖动平移，双击放大，按 0 回到全览">`
+      + `<div class="tc-tiles"></div><svg class="tc-route" aria-hidden="true"></svg><div class="tc-pins"></div>`
+      + `<div class="tc-zoom"><button type="button" data-z="1" aria-label="放大" title="放大">+</button><button type="button" data-z="-1" aria-label="缩小" title="缩小">−</button>`
+      + `<button type="button" class="tc-reset" aria-label="回到全览" title="回到全览"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button></div>`
+      + `<div class="tc-attr"></div><div class="tc-msg" hidden></div>`
+      + `<div class="tc-pop" role="dialog" tabindex="-1" hidden></div></div>`
+      + `<div class="tc-split" role="separator" aria-orientation="vertical" tabindex="0" aria-label="拖动调整列表宽窄">`
+      + `<button type="button" class="tc-fold"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button></div>`
+      + `<div class="tc-panel"></div>`
+      + `<div class="tc-grip" role="separator" aria-orientation="horizontal" tabindex="0" aria-label="拖动调整地图高度"></div></div>`
+      + `<div class="tc-tl" hidden></div></div>`;
+    const $ = (s) => el.querySelector(s);
+    const map = $(".tc-map"), tilesEl = $(".tc-tiles"), routeEl = $(".tc-route"), pinsEl = $(".tc-pins"),
+      panel = $(".tc-panel"), tl = $(".tc-tl"), body = $(".tc-body"), msg = $(".tc-msg"), attr = $(".tc-attr"),
+      found = $(".tc-found"), list = $(".tc-list"), split = $(".tc-split"), grip = $(".tc-grip"), foldBtn = $(".tc-fold"),
+      alertEl = $(".tc-alert"), pop = $(".tc-pop");
+
+    const st = {
+      day: 0, view: "map", userView: false,
+      places: it.days.map(() => null),   // 每天：每站一个地点（没找到、没查成都是 null）；还没查 null 整天
+      why: it.days.map(() => []),        // 每天：每站 null 的缘由——{ error } 没查成（原话），{ tried } 没找到（问了谁）
+      legs: it.days.map(() => []),       // 每天：第 i 段 = 第 i 站 → 第 i+1 站
+      loading: it.days.map(() => null),  // 正在查的那一趟；查完就清掉，失败的站还能再查
+      notes: it.days.map(() => new Set()), // 每天各记各的报错：地图中央只说这一天的
+      alert: "",                         // 高德今天停了：它回的原话，卡片上说一次
+      visible: false,                    // 在不在视野里：不在就不往下查后面几天
+      cfg: null, src: "", z: 12, cx: 0, cy: 0, fitted: -1, started: false, active: -1,
+      pop: -1,                           // 地图上弹着小卡的那一站（当天第几站），-1 没弹
+      nav: -1,                           // 列表里展开了「导航」菜单的那一段，-1 没展开
+      qr: null,                          // 「发到手机」的二维码开在哪：{ at: "leg"|"day"|"pop", i, mode }
+      prov: loadProv(),                  // 国内的导航链接给哪家："amap" | "google"（国外只有 Google）
+      moved: false,                      // 拖过、缩放过、点过地点：别再自作主张地重新取景
+    };
+    const tiles = new Map();
+
+    // ---- 摆法：右边列表多宽、地图多高、列表收没收 ----
+    const lay = loadLayout();
+    const narrow = () => el.clientWidth <= 620;   // 跟 tripcard.css 里的 @container 同一条线：窄了上下摆
+    const INSET = 10;   // 右边那栏离地图边多远，跟 tripcard.css 里的 --tc-in 同一个数
+    const PIN = 42;     // 钉子多大，跟 tripcard.css 里的 .tc-pin 同一个数
+    function applyLayout() {
+      if (okPw(lay.pw)) el.style.setProperty("--tc-pw", lay.pw + "%"); else el.style.removeProperty("--tc-pw");
+      if (okH(lay.h)) el.style.setProperty("--tc-h", lay.h + "px"); else el.style.removeProperty("--tc-h");
+      el.classList.toggle("tc-folded", lay.fold);
+      const t = lay.fold ? "展开地点列表" : "收起地点列表，地图占满";
+      foldBtn.title = t;
+      foldBtn.setAttribute("aria-label", t);
+      foldBtn.setAttribute("aria-expanded", String(!lay.fold));
+    }
+    applyLayout();
+    function setFold(v) {
+      lay.fold = v;
+      applyLayout();
+      saveLayout(lay);
+      refit();
+    }
+    // 右边那栏浮在地图上，收起、拉宽之后能看见的那块地图变了：还没动过地图就照新的那块重新取景
+    function refit() {
+      if (!st.moved && st.fitted === st.day) fit(true);
+      redraw();
+    }
+
+    // ---- 视图切换 ----
+    function setView(v, byUser) {
+      st.view = v;
+      el.dataset.view = v;
+      if (byUser) st.userView = true;
+      body.hidden = v !== "map";
+      tl.hidden = v !== "timeline";
+      if (v !== "map") closePop(false);
+      el.querySelectorAll(".tc-views button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.v === v)));
+      if (v === "map") { fit(false); draw(); }
+    }
+    function setDay(d, byUser) {
+      st.day = d;
+      st.active = -1;
+      st.pop = -1; st.nav = -1; st.qr = null;   // 小卡、导航菜单、二维码都是这一天的，换天就收起来
+      el.querySelectorAll(".tc-tabs button").forEach((b) => b.setAttribute("aria-selected", String(+b.dataset.d === d)));
+      renderPanel();
+      renderTimeline();
+      if (st.places[d]) afterLoad(d);
+      else { msg.textContent = "正在找地点…"; msg.hidden = !st.started; }
+      // 查过的不再查（没查成的站点「再查一次」）；不在视野里的等进了视野再查
+      if (st.started && !st.places[d] && (st.visible || byUser)) loadDay(d);
+      fit(true);
+      draw();
+    }
+
+    // ---- 右侧卡片 ----
+    function stopPlace(d, i) { const p = st.places[d]; return p ? p[i] : undefined; }
+    /** 第 i 站给导航链接用的样子：地点 + 行程里写的站名 + 城市（Google 地图靠「站名, 城市」认地方） */
+    function navPt(d, i) {
+      const p = stopPlace(d, i), s = it.days[d].stops[i];
+      return p ? { ...p, name: s.name, city: s.city || it.city } : null;
+    }
+    /** 这一天每一站；缺一站就是 null——缺一站的整天路线是错的，宁可不给（每两站之间那条「导航」还在） */
+    function dayPts(d) {
+      const ps = it.days[d].stops.map((s, i) => navPt(d, i));
+      return ps.length && ps.every(Boolean) ? ps : null;
+    }
+    /** 整天的「打开路线」：每站都找到了才给 */
+    function dayNav(d) { const ps = dayPts(d); return ps ? dayNavUrl(ps, st.prov) : ""; }
+    /** 选哪家地图：只在这一天整个在国内时给（国外高德没有路网）。选了就记住，连段间导航、「导航到这」一起换 */
+    function setProv(v) {
+      if (v === st.prov) return;
+      st.prov = v;
+      saveProv(v);
+      if (st.qr && st.qr.at === "day" && !dayNav(st.day)) st.qr = null;   // 换过去给不了整条路线，二维码一起收（开着的别的照新链接重编）
+      renderPanel();
+      if (st.pop >= 0) renderPop();   // 地图上开着的小卡里那条「导航到这」也换
+      const b = panel.querySelector(`.tc-prov[data-prov="${v}"]`);
+      if (b) b.focus({ preventScroll: true });
+    }
+    function renderPanel() {
+      const d = st.day, day = it.days[d];
+      const pts = dayPts(d), nav = pts ? dayNavUrl(pts, st.prov) : "";
+      const cn = !!pts && pts.length > 1 && pts.every((p) => { const w = convert(p.lng, p.lat, p.datum, "wgs84"); return inChina(w[0], w[1]); });
+      // Google 地图一趟带不下这么多站：整条路线给不了，照实说，切回高德就有
+      const full = !nav && cn && st.prov === "google" && pts.length > DAY_MAX.google;
+      const dayQr = !!nav && !!st.qr && st.qr.at === "day";
+      const app = navApp(nav);
+      const provs = cn ? `<span class="tc-provs" role="group" aria-label="用哪家地图打开">${[["amap", "高德"], ["google", "Google"]].map(([v, t]) =>
+        `<button type="button" class="tc-prov" data-prov="${v}" aria-pressed="${st.prov === v}">${t}</button>`).join("")}</span>` : "";
+      let h = `<div class="tc-dh"><div class="tc-dl">${esc(dayLabel(day, d))}</div>${day.title ? `<div class="tc-dt">${esc(day.title)}</div>` : ""}`
+        + (day.summary ? `<div class="tc-ds">${esc(day.summary)}</div>` : "")
+        + (nav || full ? `<div class="tc-acts">`
+          + (nav ? `<a class="tc-open" href="${esc(nav)}" target="_blank" rel="noopener" title="在${/^[A-Z]/.test(app) ? " " : ""}${app}里打开这一天的路线">${ICON.nav}打开路线</a>`
+            + `<button type="button" class="tc-qr" data-at="day" aria-expanded="${dayQr}">发到手机</button>`
+            : `<span class="tc-app">Google 地图一次最多 ${DAY_MAX.google} 站，这天 ${pts.length} 站</span>`)
+          + (provs || `<span class="tc-app">${app}</span>`) + `</div>` : "")
+        + (dayQr ? qrHtml(nav) : "") + `</div>`;
+      let seg = null;
+      day.stops.forEach((s, i) => {
+        if (i > 0) h += legHtml(d, i - 1);
+        const sg = segmentOf(s.time);
+        if (sg && sg !== seg) h += `<div class="tc-seg">${sg}</div>`;
+        seg = sg || seg;
+        const p = stopPlace(d, i);
+        const kind = s.kind || (p && p.kind) || "";
+        // 时段已经写在小标题上了：「上午」不再重复一遍，「9:30」「早上」这种更细的才单写一行
+        const time = s.time && s.time !== sg ? s.time : "";
+        const meta = [p && p.rating ? `<span class="tc-star">${esc(p.rating)} ★</span>` : "", kind ? esc(kind) : ""].filter(Boolean).join(" · ");
+        const ph = p && p.photo ? `<img alt="" loading="lazy" src="${esc(imgUrl(p.photo))}">` : "";
+        // 没照片、照片取不到：方块里写地名头一个字，不留一块空白像没加载完
+        const ini = [...String(s.name || "").trim()][0] || "";
+        h += `<div class="tc-card${i === st.active ? " on" : ""}" data-i="${i}" tabindex="0">`
+          + `<div class="tc-ph"><span class="tc-ini" aria-hidden="true">${esc(ini.toUpperCase())}</span>${ph}<span class="tc-no">${i + 1}</span></div>`
+          + `<div class="tc-info">${time ? `<div class="tc-time">${esc(time)}</div>` : ""}<div class="tc-nm">${esc(s.name)}</div>${meta ? `<div class="tc-meta">${meta}</div>` : ""}`
+          + (s.note ? `<div class="tc-note">${esc(s.note)}</div>` : "")
+          + (p ? `<div class="tc-src">${esc(srcLine(p, s.name))}</div>` : p === null ? missHtml((st.why[d] || [])[i]) : "") + `</div></div>`;
+      });
+      if (day.more) h += `<div class="tc-more">${esc(moreText("站", day.more))}</div>`;
+      panel.innerHTML = h;
+      panel.querySelectorAll(".tc-ph img").forEach((img) => img.addEventListener("error", () => img.remove(), { once: true }));
+      wireQr(panel);
+      renderPop();   // 地点、照片、路段变了，小卡跟着变
+    }
+    /** 这一站查自哪一家；地图上那个点的名字跟行程里写的对不上，把查到的名字露出来，好让人核对是不是这儿 */
+    function srcLine(p, name) {
+      return `来源：${SRC_NAME[p.src] || "地图"}`
+        + (p.name && !sameName(p.name, name) ? ` · 匹配到「${p.name}」` : "")
+        + (p.photo && PHOTO_NAME[p.photoSrc] ? ` · 照片 ${PHOTO_NAME[p.photoSrc]}` : "");
+    }
+    /** 没查成（有原话，能再查一次）和没找到（问了谁）分开说 */
+    function missHtml(w) {
+      if (w && w.error) return `<div class="tc-miss">没查成：${esc(w.error)} · <button type="button" class="tc-retry">再查一次</button></div>`;
+      const tried = (w && w.tried) || [];
+      return `<div class="tc-miss">没找到：${esc(missText(tried))}${keyHint() && !tried.includes("amap") ? ` · ${keyBtn("填高德 Key 再找找")}` : ""}</div>`;
+    }
+    /** 高德 Key 没填、没指定只用 OpenStreetMap、行程在国内、这人改得了设置：提醒一句「填高德 Key」 */
+    function keyHint() {
+      if (!st.cfg || st.cfg.amap || st.cfg.provider === "osm" || !canSetKey()) return false;
+      const ps = st.places.flat().filter(Boolean);
+      if (ps.length) return ps.some((p) => { const w = convert(p.lng, p.lat, p.datum, "wgs84"); return inChina(w[0], w[1]); });
+      return /[\u4e00-\u9fff]/.test(it.city || "");
+    }
+    const keyBtn = (text) => `<button type="button" class="tc-setkey">${esc(text)}</button>`;
+    const legBits = (leg) => [MODE[leg.mode] || "", fmtDist(leg.distance), fmtDur(leg.duration)].filter(Boolean).join(" · ");
+    /** 这一段默认按哪种走法：查到了步行 / 驾车就照着；只有直线的，两公里以内算步行（跟服务端挑路线同一条线） */
+    const legMode = (leg) => (leg.mode === "walking" || leg.mode === "driving" ? leg.mode : leg.distance < WALK_M ? "walking" : "driving");
+    function legUrl(d, i, mode) { return legNavUrl(navPt(d, i), navPt(d, i + 1), mode, st.prov); }
+    /**
+     * 两站之间那一行：路程用时 +「导航 ▾」。点开是四种走法（各自一条链接，新窗口打开）和「发到手机」。
+     * 菜单就地展开在这一行底下，不浮在列表上——列表自己会滚，浮层会被它切掉。
+     * 高德这一次报错、先画了直线的（failed）：原话写在后面，给「再查一次」。
+     */
+    function legHtml(d, i) {
+      const leg = st.legs[d][i];
+      const a = stopPlace(d, i), b = stopPlace(d, i + 1);
+      // 两站之间这一行兼当分隔线：怎么走、多远、多久，跟一个「导航 ▾」
+      if (!leg || !a || !b) return `<div class="tc-leg"><span class="tc-legr"></span></div>`;
+      const open = st.nav === i, qr = open && !!st.qr && st.qr.at === "leg" && st.qr.i === i, def = legMode(leg);
+      const bad = leg.failed ? ` · 路线没查成：${esc(leg.error || "")} · <button type="button" class="tc-retry">再查一次</button>` : "";
+      return `<div class="tc-leg${bad ? " bad" : ""}" data-leg="${i}">${ICON[leg.mode] || ICON.line}<span class="tc-legt">${esc(legBits(leg))}${bad}</span><span class="tc-legr"></span>`
+        + `<button type="button" class="tc-navb" aria-expanded="${open}" title="选走法，在地图应用里导航">导航 ▾</button>`
+        + `<div class="tc-navm"${open ? "" : " hidden"}>`
+        + NAV_MODES.map(([m, t]) => `<a href="${esc(legUrl(d, i, m))}" target="_blank" rel="noopener"${m === def ? ' class="on"' : ""}>${t} ↗</a>`).join("")
+        + `<button type="button" class="tc-qr" data-at="leg" aria-expanded="${qr}">发到手机</button></div>`
+        + (qr ? qrHtml(legUrl(d, i, st.qr.mode), st.qr.mode) : "") + `</div>`;
+    }
+    /**
+     * 「发到手机」：二维码就地展开。段间的那个能换走法（换了重新编）。
+     * 二维码图是服务端编的（/api/geo/qr），扫出来就是旁边「在这台电脑上打开」那条链接。
+     */
+    function qrHtml(u, mode) {
+      const modes = mode ? `<div class="tc-qrms" role="group" aria-label="走法">${NAV_MODES.map(([m, t]) =>
+        `<button type="button" class="tc-qrm" data-m="${m}" aria-pressed="${m === mode}">${t}</button>`).join("")}</div>` : "";
+      // 站多的高德链接一千多个字符，二维码格子密，放大些手机才扫得出
+      return `<div class="tc-qrbox">${modes}<img class="tc-qrimg${u.length > QR_BIG ? " big" : ""}" alt="导航链接的二维码" width="148" height="148" src="${esc(qrUrl(u))}">`
+        + `<div class="tc-qrt">用手机扫一下，在手机上接着导航</div>`
+        + `<div class="tc-qract"><a href="${esc(u)}" target="_blank" rel="noopener">在这台电脑上打开 ↗</a><button type="button" class="tc-qrx">收起</button></div></div>`;
+    }
+    /** 二维码没出来：再要一次那个地址，把服务端回的原话写上，不替人猜为什么 */
+    function wireQr(scope) {
+      scope.querySelectorAll(".tc-qrimg").forEach((img) => img.addEventListener("error", () => {
+        const say = (m) => {
+          const d = document.createElement("div");
+          d.className = "tc-qrerr";
+          d.textContent = `二维码没生成出来：${m}`;
+          img.replaceWith(d);
+        };
+        fetch(img.src).then((r) => r.text().then((t) => (r.ok ? "图片没加载出来" : t || `HTTP ${r.status}`)))
+          .catch((e) => (e && e.message) || String(e)).then(say);
+      }, { once: true }));
+    }
+
+    // ---- 时间线 ----
+    function renderTimeline() {
+      const day = it.days[st.day];
+      let last = null;
+      const top = tlMsg(st.day);
+      tl.innerHTML = (top ? `<div class="tc-tlmsg">${top}</div>` : "")
+        + (day.title ? `<div class="tc-tlh">${esc(dayLabel(day, st.day))} · ${esc(day.title)}</div>` : "")
+        + day.stops.map((s, i) => {
+          const lab = s.time || segmentOf(s.time);
+          const show = lab && lab !== last;
+          last = lab || last;
+          // 地图上有这一站的：点一下（或回车）切到地图、弹出它的小卡
+          const go = !!stopPlace(st.day, i);
+          return `<div class="tc-tlr${go ? " go" : ""}" data-i="${i}"${go ? ' role="button" tabindex="0" title="在地图上看这一站"' : ""}><div class="tc-tls">${show ? esc(lab) : ""}</div><div class="tc-tld"></div>`
+            + `<div class="tc-tlt"><b>${esc(s.name)}</b>${s.note ? `<span>${esc(s.note)}</span>` : ""}</div></div>`;
+        }).join("")
+        + (day.more ? `<div class="tc-more">${esc(moreText("站", day.more))}</div>` : "");
+    }
+    /**
+     * 时间线顶上那句（HTML）。地图那边说过的，切到时间线也得看得见：
+     * 有站没查成的，原话 +「再查一次」（地图那边每站各有一个）；一个都没找到的，说问了谁。
+     */
+    function tlMsg(d) {
+      const errs = (st.why[d] || []).filter((w) => w && w.error);
+      if (errs.length) {
+        const head = (st.places[d] || []).some(Boolean) ? `${errs.length} 站没查成` : "没查成";
+        return `${head}：${esc(errs[0].error)} <button type="button" class="tc-retry">再查一次</button>`;
+      }
+      return esc(dayNone(d));
+    }
+    /** 这一天查完了、一个都没找到、也没有哪站是没查成的：说问了谁。别的情况回 "" */
+    function dayNone(d) {
+      const ps = st.places[d], why = st.why[d] || [];
+      if (!ps || ps.some(Boolean) || why.some((w) => w && w.error)) return "";
+      const tried = [...new Set(why.flatMap((w) => (w && w.tried) || []))];
+      return `这一天的地点，${missText(tried)}`;
+    }
+
+    // ---- 找到几个地点 ----
+    function renderFound() {
+      const loaded = st.places.filter(Boolean);
+      const total = it.days.reduce((a, d) => a + d.stops.length, 0);
+      const got = loaded.reduce((a, ps) => a + ps.filter(Boolean).length, 0);
+      const done = loaded.length === it.days.length;
+      found.textContent = done ? `找到 ${got} 个地点 ›` : got ? `已找到 ${got} 个地点…` : "正在找地点…";
+      if (done && got < total) found.title = `${total - got} 个没找到`;
+      if (list.hidden) return;
+      // 照实写这张卡上的点查自哪几家，没查过的天不算
+      const ps = st.places.flat().filter(Boolean);
+      const srcs = [...new Set(ps.map((p) => SRC_NAME[p.src]).filter(Boolean))];
+      const phs = [...new Set(ps.map((p) => (p.photo ? PHOTO_NAME[p.photoSrc] : "")).filter(Boolean))];
+      const src = (srcs.length ? `地点数据：${srcs.join("、")}` : "") + (phs.length ? `，照片：${phs.join("、")}` : "")
+        + (keyHint() ? `${srcs.length ? " · " : ""}${keyBtn("填高德 Key，国内地点更准")}` : "");
+      const notes = new Set(st.notes.flatMap((n) => [...n]));
+      list.innerHTML = it.days.map((d, di) => {
+        const ps = st.places[di];
+        return `<div class="tc-lday"><b>${esc(dayLabel(d, di))}</b>${d.stops.map((s, i) => {
+          const p = ps ? ps[i] : undefined;
+          const w = p === null ? (st.why[di] || [])[i] : null;
+          const tail = p ? esc(p.addr || p.name) : p === null ? (w && w.error ? "没查成" : "没找到") : "还在找";
+          return `<div class="tc-lrow${p ? "" : " miss"}"><span>${esc(s.name)}</span><em>${tail}</em></div>`;
+        }).join("")}</div>`;
+      }).join("") + `<div class="tc-lsrc">${src}${[...notes].map((n) => `<div class="tc-note-err">${esc(n)}</div>`).join("")}</div>`;
+    }
+    function renderAlert() {
+      alertEl.hidden = !st.alert;
+      alertEl.innerHTML = st.alert
+        ? `高德今天停用了，它回的是「${esc(st.alert)}」，先改用 OpenStreetMap${canSetKey() ? ` · ${keyBtn("打开地图设置")}` : ""}` : "";
+    }
+    /** 高德的 Key 级报错：服务端当天熔断了，这张卡上说一次 */
+    function setAlert(m) {
+      if (st.alert || !m) return;
+      st.alert = String(m);
+      renderAlert();
+    }
+
+    // ---- 查地点、查路 ----
+    function loadDay(d) {
+      if (st.loading[d]) return st.loading[d];
+      const g = cfgGen;   // 查到一半设置变了：这一趟的结果作废，别写进新一轮的状态里
+      const stale = () => g !== cfgGen;
+      const notes = st.notes[d];
+      const run = (async () => {
+        const cfg = await getCfg();
+        if (stale()) return;
+        if (!st.cfg) st.cfg = cfg;
+        const stops = it.days[d].stops;
+        const q = stops.map((s) => ({ name: s.name, city: s.city || it.city }));
+        // 只问还没答案的：找到的、确实没找到的都在 placeMemo 里，「再查一次」只重查没查成的那几站
+        const need = q.filter((x) => !placeMemo.has(pkey(x.name, x.city)));
+        const errs = new Map();
+        if (need.length) {
+          try {
+            const r = await post("/api/geo/places", { items: need });
+            if (stale()) return;
+            (r.notes || []).forEach((n) => notes.add(n));
+            setAlert(r.amapOff);
+            need.forEach((x, j) => {
+              const p = (r.items || [])[j], k = pkey(x.name, x.city);
+              if (p && p.ok) placeMemo.set(k, p);
+              else if (p && !p.failed) placeMemo.set(k, { ok: false, tried: Array.isArray(p.tried) ? p.tried : [] });
+              else errs.set(k, (p && p.error) || "服务端没回这一站");
+            });
+          } catch (e) {
+            if (stale()) return;
+            need.forEach((x) => errs.set(pkey(x.name, x.city), e.message));
+          }
+        }
+        const memo = q.map((x) => placeMemo.get(pkey(x.name, x.city)));
+        st.places[d] = memo.map((m) => (m && m.ok ? m : null));
+        st.why[d] = memo.map((m, i) => (m && m.ok ? null : m ? { tried: m.tried || [] } : { error: errs.get(pkey(q[i].name, q[i].city)) || "没查" }));
+        fillPhotos(d);   // 照片另外要，不让钉子陪着等
+        const ps = st.places[d];
+        const pairs = [];
+        // 没查过的段，和上回高德报错先画了直线的段（failed）；查到的、本来就只画直线的不再问
+        for (let i = 0; i + 1 < ps.length; i++) if (ps[i] && ps[i + 1] && (!st.legs[d][i] || st.legs[d][i].failed)) pairs.push(i);
+        if (pairs.length) {
+          try {
+            const pt = (p) => ({ lng: p.lng, lat: p.lat, datum: p.datum });
+            const r = await post("/api/geo/legs", { pairs: pairs.map((i) => ({ a: pt(ps[i]), b: pt(ps[i + 1]) })) });
+            if (stale()) return;
+            (r.notes || []).forEach((n) => notes.add(n));
+            setAlert(r.amapOff);
+            pairs.forEach((i, j) => { st.legs[d][i] = (r.items || [])[j] || null; });
+          } catch (e) { if (!stale()) notes.add(e.message); }
+        }
+      })().catch((e) => {
+        if (stale()) return;
+        notes.add(e.message);
+        if (!st.places[d]) {
+          st.places[d] = it.days[d].stops.map(() => null);
+          st.why[d] = it.days[d].stops.map(() => ({ error: e.message }));
+        }
+      }).then(() => {
+        // 查完就放手：留着这趟 promise 的话，没查成的站不刷新页面就永远不会再查
+        if (st.loading[d] === run) st.loading[d] = null;
+        if (stale()) return;
+        renderFound();
+        if (d !== st.day) return;
+        renderPanel();
+        renderTimeline();
+        fit(true);
+        afterLoad(d);
+        draw();
+      });
+      st.loading[d] = run;
+      return run;
+    }
+    /** 没查成的那几站、那几段路再问一次（找到的、确实没找到的、查到的路不再问，不白花次数） */
+    function retry(d) {
+      if (st.loading[d]) return;
+      st.notes[d].clear();
+      el.querySelectorAll(".tc-retry").forEach((b) => { b.disabled = true; b.textContent = "正在查…"; });
+      loadDay(d);
+    }
+    /** 钉子钉完再补照片：补图要去 Wikidata，连不上时一等好几秒 */
+    function fillPhotos(d) {
+      const ps = st.places[d] || [], stops = it.days[d].stops;
+      const want = [];
+      ps.forEach((p, i) => { if (p && p.photoPending && !photoAsk.has(p)) want.push([p, i]); });
+      if (want.length) {
+        const ask = post("/api/geo/photos", {
+          items: want.map(([p, i]) => ({ name: stops[i].name, city: stops[i].city || it.city, lng: p.lng, lat: p.lat, datum: p.datum, qid: p.qid || "" })),
+        }).then((r) => {
+          want.forEach(([p], j) => {
+            const x = (r.items || [])[j];
+            p.photoPending = false;
+            if (x && x.photo) { p.photo = x.photo; p.photoSrc = x.src || "wikidata"; }
+          });
+        }).catch((e) => {
+          want.forEach(([p]) => { p.photoPending = false; });
+          console.warn("[tripcard] 照片没补上", e && e.message);
+        });
+        want.forEach(([p]) => photoAsk.set(p, ask));
+      }
+      const asks = [...new Set(ps.filter((p) => p && p.photoPending && photoAsk.has(p)).map((p) => photoAsk.get(p)))];
+      if (!asks.length) return;
+      const g = cfgGen;
+      Promise.all(asks).then(() => {
+        if (g !== cfgGen || st.places[d] !== ps) return;
+        if (!list.hidden) renderFound();
+        if (d !== st.day) return;
+        renderPanel();
+        draw();
+      });
+    }
+    function afterLoad(d) {
+      const ps = st.places[d] || [];
+      const err = (st.why[d] || []).find((w) => w && w.error);
+      if (ps.some(Boolean)) {
+        msg.hidden = true;
+        if (!st.userView && st.view !== "map") setView("map");
+      } else if (err) {
+        // 一站都没查成：原话留在地图中央，给「再查一次」，不切走
+        msg.hidden = false;
+        msg.innerHTML = `没查成：${esc(err.error)} <button type="button" class="tc-retry">再查一次</button>`;
+        if (!st.userView && st.view !== "map") setView("map");
+      } else {
+        msg.hidden = false;
+        msg.textContent = dayNone(d);
+        if (!st.userView) setView("timeline");
+      }
+    }
+    /**
+     * 当天查完，顺着把后面几天也查了：「找到 N 个地点」要数全，切到第几天也不用等。
+     * 卡片不在页面上（切走对话了）、滚出视野了就停，回来再接着查。
+     */
+    let fetching = false;
+    async function prefetch() {
+      if (fetching) return;
+      fetching = true;
+      try {
+        for (let n = 0; n < it.days.length * 3; n++) {
+          if (!el.isConnected || !st.visible) return;
+          const d = !st.places[st.day] ? st.day : st.places.findIndex((p) => !p);
+          if (d < 0) return;
+          await loadDay(d);
+        }
+      } finally { fetching = false; }
+    }
+
+    // ---- 地图 ----
+    function srcOf(d) {
+      const c = st.cfg || {}, S = c.sources || {};
+      if (c.provider === "osm" || !S.amap) return "osm";
+      const ps = (st.places[d] || []).filter(Boolean);
+      const cn = ps.filter((p) => { const w = convert(p.lng, p.lat, p.datum, "wgs84"); return inChina(w[0], w[1]); }).length;
+      return cn && cn * 2 >= ps.length ? "amap" : "osm";
+    }
+    const srcInfo = () => ((st.cfg && st.cfg.sources) || {})[st.src] || { datum: "wgs84", maxZoom: 18, attr: "" };
+    const ptOf = (p) => convert(p.lng, p.lat, p.datum, srcInfo().datum);
+    /**
+     * 地图上真正看得见、能放钉子的那一块：宽的时候右边浮着一栏地点，左上角浮着天数，左下角是缩放；
+     * 钉子底下还挂着名字。取景、点地点时居中都按这一块算，不按整张地图。
+     */
+    function viewBox() {
+      const W = map.clientWidth, H = map.clientHeight;
+      const occ = !narrow() && !lay.fold ? panel.offsetWidth + INSET : 0;
+      const v = { L: 50, T: multi ? 62 : 32, R: W - occ - 30, B: H - 44, occ };
+      if (v.R - v.L < 80) { v.L = 24; v.R = Math.max(v.L + 40, W - occ - 24); }
+      if (v.B - v.T < 80) { v.T = 24; v.B = Math.max(v.T + 40, H - 24); }
+      return v;
+    }
+    // 看得见的那块的正中间（右边那栏挡住的不算）。不拿 viewBox 的中点：它两边留白不一样宽
+    // （左边让开缩放钮），中点会往右偏 10px，滑过去的那一站看着就不在正中
+    function visMid() {
+      const v = viewBox();
+      return [(map.clientWidth - v.occ) / 2, (v.T + v.B) / 2];
+    }
+    function fit(force) {
+      const W = map.clientWidth, H = map.clientHeight;
+      if (!W || !H || !st.cfg) return;
+      if (!force && st.fitted === st.day) return;
+      const ps = (st.places[st.day] || []).filter(Boolean);
+      if (!ps.length) return;
+      stopFly();
+      st.src = srcOf(st.day);
+      const pts = ps.map(ptOf);
+      const v = viewBox(), vw = v.R - v.L, vh = v.B - v.T;
+      const max = Math.min(16, srcInfo().maxZoom);
+      let z = max;
+      for (; z > 3; z--) {
+        const xs = pts.map((p) => lngX(p[0], z)), ys = pts.map((p) => latY(p[1], z));
+        if (Math.max(...xs) - Math.min(...xs) <= vw && Math.max(...ys) - Math.min(...ys) <= vh) break;
+      }
+      const xs = pts.map((p) => lngX(p[0], z)), ys = pts.map((p) => latY(p[1], z));
+      st.z = z;
+      st.cx = (Math.max(...xs) + Math.min(...xs)) / 2 - ((v.L + v.R) / 2 - W / 2);
+      st.cy = (Math.max(...ys) + Math.min(...ys)) / 2 - ((v.T + v.B) / 2 - H / 2);
+      st.fitted = st.day;
+      st.moved = false;
+    }
+    let raf = 0;
+    const redraw = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; draw(); }); };
+    function draw() {
+      if (st.view !== "map") return;
+      const W = map.clientWidth, H = map.clientHeight;
+      const ps = st.places[st.day];
+      if (!W || !H || !st.src || st.fitted !== st.day) {
+        tilesEl.replaceChildren(); tiles.clear(); pinsEl.replaceChildren(); pinsKey = ""; routeEl.innerHTML = "";
+        return;
+      }
+      const z = st.z, n = 2 ** z, ox = st.cx - W / 2, oy = st.cy - H / 2;
+      // 底图
+      const want = new Set();
+      for (let x = Math.floor(ox / TS); x <= Math.floor((ox + W) / TS); x++) {
+        for (let y = Math.max(0, Math.floor(oy / TS)); y <= Math.min(n - 1, Math.floor((oy + H) / TS)); y++) {
+          const k = `${st.src}/${z}/${x}/${y}`;
+          want.add(k);
+          let img = tiles.get(k);
+          if (!img) {
+            img = document.createElement("img");
+            img.alt = ""; img.draggable = false; img.decoding = "async";
+            img.src = `/api/geo/tile/${st.src}/${z}/${((x % n) + n) % n}/${y}.png`;
+            tiles.set(k, img);
+            tilesEl.appendChild(img);
+          }
+          img.style.transform = `translate(${Math.round(x * TS - ox)}px, ${Math.round(y * TS - oy)}px)`;
+        }
+      }
+      for (const [k, img] of tiles) if (!want.has(k)) { img.remove(); tiles.delete(k); }
+      attr.textContent = srcInfo().attr || "";
+      // 路线：查到的路先垫一道白边再画，压在花花绿绿的底图上也看得清；只有直线的画虚线
+      const lines = [], casing = [];
+      (st.legs[st.day] || []).forEach((leg, i) => {
+        if (!leg || !ps || !ps[i] || !ps[i + 1]) return;
+        const raw = leg.line && leg.line.length >= 2 && leg.mode !== "line"
+          ? leg.line.map(([x, y]) => convert(x, y, leg.datum, srcInfo().datum))
+          : [ptOf(ps[i]), ptOf(ps[i + 1])];
+        const pts = raw.map(([x, y]) => `${(lngX(x, z) - ox).toFixed(1)},${(latY(y, z) - oy).toFixed(1)}`).join(" ");
+        if (leg.mode !== "line") casing.push(`<polyline class="tc-rc" points="${pts}"/>`);
+        lines.push(`<polyline class="tc-rl${leg.mode === "line" ? " dash" : ""}" points="${pts}"/>`);
+      });
+      routeEl.setAttribute("width", W); routeEl.setAttribute("height", H);
+      routeEl.innerHTML = casing.join("") + lines.join("");
+      // 钉子：元素建一次，拖动时只挪位置（每帧重建会让照片一闪一闪）
+      syncPins();
+      const at = [];
+      pinsEl.querySelectorAll(".tc-pin").forEach((b) => {
+        const p = ps && ps[+b.dataset.i];
+        if (!p) return;
+        const [x, y] = ptOf(p);
+        const px = lngX(x, z) - ox, py = latY(y, z) - oy;
+        b.hidden = px < -40 || py < -40 || px > W + 40 || py > H + 40;
+        b.style.transform = `translate(${Math.round(px)}px, ${Math.round(py)}px)`;
+        b.classList.toggle("on", +b.dataset.i === st.active);
+        if (!b.hidden) at.push({ b, px, py, box: [px - PIN / 2, py - PIN / 2, px + PIN / 2, py + PIN / 2] });
+      });
+      placeLabels(at);
+      placePop(W, H, z, ox, oy);
+    }
+    /**
+     * 钉子底下的名字：压着别的钉子、别的名字就先不写（选中的那颗先占位，其余按站序），
+     * 放大了离得开了自然一个个露出来。宽度量一次记在钉子上，拖动时不再量。
+     */
+    function placeLabels(at) {
+      const hit = (r, q) => r[0] < q[2] && q[0] < r[2] && r[1] < q[3] && q[1] < r[3];
+      const order = at.slice().sort((a, b) => (+b.b.dataset.i === st.active) - (+a.b.dataset.i === st.active) || a.b.dataset.i - b.b.dataset.i);
+      const shown = [];
+      for (const q of order) {
+        const lb = q.b.querySelector(".tc-plb");
+        if (!lb) continue;
+        const w = q.b._lw || (q.b._lw = lb.offsetWidth);
+        const top = q.py + PIN / 2 + (+q.b.dataset.i === st.active ? 8 : 4);
+        const box = [q.px - w / 2, top, q.px + w / 2, top + 16];
+        const clash = shown.some((r) => hit(r, box)) || at.some((o) => o !== q && hit(o.box, box));
+        q.b.classList.toggle("nolb", clash);
+        if (!clash) shown.push(box);
+      }
+    }
+    let pinsKey = "";
+    function syncPins() {
+      const ps = st.places[st.day] || [];
+      const k = st.day + "|" + ps.map((p) => (p ? `${p.lng},${p.lat},${p.photo || ""}` : "-")).join(";");
+      if (k === pinsKey) return;
+      pinsKey = k;
+      const stops = it.days[st.day].stops;
+      pinsEl.innerHTML = ps.map((p, i) => (p
+        ? `<button type="button" class="tc-pin" data-i="${i}" title="${esc(stops[i].name)}" aria-label="${i + 1}. ${esc(stops[i].name)}">`
+          + `<span class="tc-pph">${p.photo ? `<img alt="" draggable="false" src="${esc(imgUrl(p.photo))}">` : ""}<span class="tc-pno">${i + 1}</span></span>`
+          + `<span class="tc-plb" aria-hidden="true">${esc(stops[i].name)}</span></button>`
+        : "")).join("");
+      pinsEl.querySelectorAll("img").forEach((img) => img.addEventListener("error", () => img.remove(), { once: true }));
+    }
+    function zoomAt(dz, px, py) {
+      const W = map.clientWidth, H = map.clientHeight;
+      const nz = Math.max(3, Math.min(srcInfo().maxZoom, st.z + dz));
+      if (nz === st.z || !st.src) return;
+      stopFly();
+      if (px == null) [px, py] = visMid();
+      const wx = st.cx - W / 2 + px, wy = st.cy - H / 2 + py;
+      const lng = xLng(wx, st.z), lat = yLat(wy, st.z);
+      st.z = nz;
+      st.cx = lngX(lng, nz) - px + W / 2;
+      st.cy = latY(lat, nz) - py + H / 2;
+      st.moved = true;
+      draw();
+    }
+    // 点过地点、拖过、缩放过之后一键回到刚打开时那样：当天的地点全在框里，高亮清掉，小卡收起
+    function resetView() { closePop(false); fit(true); focusStop(-1, false); }
+    function focusStop(i, pan) {
+      st.active = i;
+      panel.querySelectorAll(".tc-card").forEach((c) => c.classList.toggle("on", +c.dataset.i === i));
+      const p = stopPlace(st.day, i);
+      draw();
+      if (pan && p && st.src) {
+        // 挪到看得见的那块正中间（不是整张地图正中间——那儿可能被右边那栏挡着）；滑过去，不是一下跳过去
+        const [x, y] = ptOf(p);
+        const W = map.clientWidth, H = map.clientHeight, [mx, my] = visMid();
+        st.moved = true;
+        flyTo(lngX(x, st.z) - (mx - W / 2), latY(y, st.z) - (my - H / 2));
+      }
+    }
+    let fly = 0;
+    function stopFly() { if (fly) { cancelAnimationFrame(fly); fly = 0; } }
+    function flyTo(cx, cy) {
+      stopFly();
+      const x0 = st.cx, y0 = st.cy, far = Math.hypot(cx - x0, cy - y0);
+      const still = typeof root.matchMedia === "function" && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      if (still || far < 2 || far > 4000) { st.cx = cx; st.cy = cy; draw(); return; }
+      const t0 = performance.now(), dur = 260;
+      const step = (t) => {
+        const k = Math.min(1, (t - t0) / dur), e = 1 - (1 - k) ** 3;
+        st.cx = x0 + (cx - x0) * e; st.cy = y0 + (cy - y0) * e;
+        draw();
+        fly = k < 1 ? requestAnimationFrame(step) : 0;
+      };
+      fly = requestAnimationFrame(step);
+    }
+
+    // ---- 地图上的小卡：点钉子弹出来。列表收起了、窄屏列表在下面看不见时，就靠它看这一站 ----
+    let popLast = "";     // 上回画进去的内容：没变就不重画（重画会把焦点弄丢）
+    let popSize = null;   // 量过的宽高：draw() 拖动时每帧都要摆，不每帧量
+    /** 地图窄（手机竖屏、窄窗口）：小卡贴着地图底边摆，不跟着钉子跑——跟着跑总有一半出了地图 */
+    const POP_DOCK = 440;
+    function popHtml(i, p) {
+      const d = st.day, stops = it.days[d].stops, s = stops[i], ps = st.places[d] || [];
+      const kind = s.kind || p.kind || "";
+      const meta = [s.time ? esc(s.time) : "", p.rating ? `<span class="tc-star">${esc(p.rating)} ★</span>` : "", kind ? esc(kind) : ""].filter(Boolean).join(" · ");
+      const ini = [...String(s.name || "").trim()][0] || "";
+      const row = (k, v) => `<div class="tc-prow"><span class="tc-pk">${k}</span><span class="tc-pv">${v}</span></div>`;
+      let h = `<button type="button" class="tc-px" aria-label="关闭" title="关闭（Esc）">×</button>`
+        + `<div class="tc-ptop"><div class="tc-ph"><span class="tc-ini" aria-hidden="true">${esc(ini.toUpperCase())}</span>`
+        + (p.photo ? `<img alt="" src="${esc(imgUrl(p.photo))}">` : "") + `<span class="tc-no">${i + 1}</span></div>`
+        + `<div class="tc-info"><div class="tc-nm">${esc(s.name)}</div>${meta ? `<div class="tc-meta">${meta}</div>` : ""}</div></div>`
+        + (s.note ? `<div class="tc-note">${esc(s.note)}</div>` : "");
+      // 地址先用地图上查到的；没有才用行程里写的，并说明是行程里写的（那是 AI 写的，没核对过）
+      if (p.addr) h += row("地址", esc(p.addr));
+      else if (s.addr) h += row("地址", `${esc(s.addr)}<span class="tc-by">（行程里写的）</span>`);
+      // 营业时间、电话、人均、特色：高德给什么写什么，不改写；老缓存里没有这几项就不出这几行
+      if (p.src === "amap") {
+        const by = `<span class="tc-by"> · 高德</span>`;
+        if (p.hours) h += row("营业时间", esc(p.hours) + by);
+        if (p.tel) {
+          const dial = String(p.tel).split(/[;,；，]/)[0].replace(/[^\d+-]/g, "");
+          h += row("电话", (dial ? `<a href="tel:${esc(dial)}">${esc(p.tel)}</a>` : esc(p.tel)) + by);
+        }
+        if (p.cost) h += row("人均", `¥${esc(p.cost)}` + by);
+        if (p.tag) h += row("特色", esc(p.tag) + by);
+      }
+      h += `<div class="tc-src">${esc(srcLine(p, s.name))}</div>`;
+      const qr = !!st.qr && st.qr.at === "pop";
+      const to = stopNavUrl(navPt(st.day, i), st.prov);
+      h += `<div class="tc-pact"><a class="tc-go" href="${esc(to)}" target="_blank" rel="noopener" title="从你现在的位置出发">导航到这 ↗</a>`
+        + `<button type="button" class="tc-qr" data-at="pop" aria-expanded="${qr}">发到手机</button></div>`
+        + (qr ? qrHtml(to) : "");
+      // 上一站 / 下一站：跳过地图上没找到的站。紧挨着的写上这一段怎么走、多远
+      let pv = i - 1, nx = i + 1;
+      while (pv >= 0 && !ps[pv]) pv--;
+      while (nx < ps.length && !ps[nx]) nx++;
+      const go = (j, prev) => (j < 0 || j >= ps.length ? `<span></span>`
+        : `<button type="button" class="tc-pgo${prev ? "" : " nx"}" data-go="${j}"><span>${prev ? "‹ 上一站" : "下一站 ›"}</span><b>${j + 1}. ${esc(stops[j].name)}</b></button>`);
+      if (pv >= 0 || nx < ps.length) {
+        const leg = nx === i + 1 ? (st.legs[d] || [])[i] : null;
+        h += `<div class="tc-pnav">${go(pv, true)}${go(nx, false)}</div>`
+          + (leg && legBits(leg) ? `<div class="tc-pleg">到下一站：${esc(legBits(leg))}</div>` : "");
+      }
+      return h;
+    }
+    /** 照 st.pop 画小卡（位置在 draw() 里摆）。focus：true 焦点进小卡；字符串是小卡里要放焦点的那颗按钮 */
+    function renderPop(focus) {
+      const i = st.pop, p = i >= 0 ? stopPlace(st.day, i) : null;
+      if (!p || st.view !== "map") {
+        st.pop = -1;
+        if (st.qr && st.qr.at === "pop") st.qr = null;
+        pop.hidden = true;
+        popLast = "";
+        return;
+      }
+      const h = popHtml(i, p);
+      pop.hidden = false;
+      if (h !== popLast) {
+        const had = pop.contains(document.activeElement);
+        popLast = h;
+        pop.innerHTML = h;
+        pop.setAttribute("aria-label", `${i + 1}. ${it.days[st.day].stops[i].name}`);
+        pop.querySelectorAll(".tc-ph img").forEach((img) => img.addEventListener("error", () => img.remove(), { once: true }));
+        wireQr(pop);
+        popSize = null;
+        if (had && !focus) focus = true;   // 照片补上了之类的重画：焦点原来在小卡里，还放回小卡
+      }
+      const f = typeof focus === "string" ? pop.querySelector(focus) || pop : focus ? pop : null;
+      if (f) f.focus({ preventScroll: true });
+    }
+    function openPop(i, focus) {
+      const p = stopPlace(st.day, i);
+      if (!p || st.view !== "map") return;
+      if (st.pop !== i && st.qr && st.qr.at === "pop") st.qr = null;
+      st.pop = i;
+      renderPop();
+      if (st.src && !fly) {
+        // 钉子不在看得见的那块里（从列表、时间线、上一站下一站跳过来的）：挪过去。右边那栏挡着的不算；
+        // 贴底的小卡会盖住地图下半截，钉子得露在小卡上面。点列表卡片时已经在往那儿滑了，不另外挪
+        const W = map.clientWidth, H = map.clientHeight, vw = W - viewBox().occ;
+        const [x, y] = ptOf(p);
+        const px = lngX(x, st.z) - (st.cx - W / 2), py = latY(y, st.z) - (st.cy - H / 2);
+        const dock = dockPop(vw);
+        const bottom = dock ? Math.max(0, H - pop.offsetHeight - 22) : H;   // 贴底的小卡离底边 22px（tripcard.css .tc-pop.dock）
+        if (py < 24 || py > bottom - 24) { st.cy += py - bottom / 2; st.moved = true; }
+        if (px < 24 || px > vw - 24) { st.cx += px - vw / 2; st.moved = true; }
+      }
+      draw();
+      renderPop(focus);
+    }
+    /** 收起小卡。back：焦点放回它那颗钉子（Esc、点 × 时），点空白处收起就不动焦点 */
+    function closePop(back) {
+      if (st.pop < 0) return false;
+      const i = st.pop;
+      st.pop = -1;
+      renderPop();
+      if (back) {
+        const b = pinsEl.querySelector(`.tc-pin[data-i="${i}"]`);
+        (b && !b.hidden ? b : map).focus({ preventScroll: true });
+      }
+      return true;
+    }
+    /** 看得见的那块地图窄了（手机、右边那栏拉得很宽）就贴底；贴底时右边让开那一栏 */
+    function dockPop(vw) {
+      // 宽的时候右边那栏挡掉一块，剩下的放得下小卡就浮着
+      const dock = vw < (narrow() ? POP_DOCK : 300);
+      if (pop.classList.contains("dock") !== dock) { pop.classList.toggle("dock", dock); popSize = null; }
+      pop.style.right = dock && vw < map.clientWidth ? `${map.clientWidth - vw + 8}px` : "";
+      return dock;
+    }
+    /**
+     * 小卡摆在钉子上方；上方放不下放下方（让开钉子底下的名字），再放不下放左右；看得见的那块窄就贴底。
+     * 只在看得见的那块里摆：右边那栏挡着的不算，左上角浮着天数时顶上让开。钉子拖出这块了小卡先藏起来
+     */
+    function placePop(W, H, z, ox, oy) {
+      if (st.pop < 0 || pop.hidden) return;
+      const p = stopPlace(st.day, st.pop);
+      if (!p) return;
+      const vw = W - viewBox().occ;
+      if (dockPop(vw)) { pop.classList.remove("off"); pop.style.transform = ""; return; }
+      const [x, y] = ptOf(p);
+      const px = lngX(x, z) - ox, py = latY(y, z) - oy;
+      const off = px < 0 || py < 0 || px > vw || py > H;
+      pop.classList.toggle("off", off);
+      if (off) return;
+      if (!popSize) {
+        const tabs = $(".tc-tabs");
+        popSize = { w: pop.offsetWidth, h: pop.offsetHeight, top: multi ? tabs.offsetTop + tabs.offsetHeight + 4 : 8 };
+      }
+      // 离地图边 8px；上方离钉子中心 PIN/2 + 10（选中的钉子放大了一圈），下方再让开钉子底下那行名字
+      const { w, h } = popSize, M = 8, T = Math.max(M, popSize.top), UP = PIN / 2 + 10, DOWN = PIN / 2 + 30;
+      let left = px - w / 2, top;
+      if (py - UP - h >= T) top = py - UP - h;
+      else if (py + DOWN + h <= H - M) top = py + DOWN;
+      else { top = py - h / 2; left = px + UP + w <= vw - M ? px + UP : px - UP - w; }
+      left = Math.max(M, Math.min(vw - M - w, left));
+      top = Math.max(T, Math.min(H - M - h, top));
+      pop.style.transform = `translate(${Math.round(left)}px, ${Math.round(top)}px)`;
+    }
+
+    // ---- 导航菜单、发到手机：就地开关，不重画整个列表（重画会让列表里的照片闪一下） ----
+    function setNav(i) {
+      st.nav = i;
+      if (st.qr && st.qr.at === "leg") showQr(null);
+      panel.querySelectorAll(".tc-leg[data-leg]").forEach((l) => {
+        const on = +l.dataset.leg === i;
+        l.querySelector(".tc-navb").setAttribute("aria-expanded", String(on));
+        l.querySelector(".tc-navm").hidden = !on;
+      });
+    }
+    const qrHost = (q) => (q.at === "leg" ? panel.querySelector(`.tc-leg[data-leg="${q.i}"]`) : q.at === "day" ? panel.querySelector(".tc-dh") : pop);
+    function qrLink(q) {
+      if (q.at === "day") return dayNav(st.day);
+      if (q.at === "leg") return stopPlace(st.day, q.i) && stopPlace(st.day, q.i + 1) ? legUrl(st.day, q.i, q.mode) : "";
+      const p = navPt(st.day, st.pop);
+      return p ? stopNavUrl(p, st.prov) : "";
+    }
+    /** 开 / 换 / 收「发到手机」的二维码，同一时间只开一个 */
+    function showQr(q) {
+      el.querySelectorAll(".tc-qrbox").forEach((b) => b.remove());
+      el.querySelectorAll(".tc-qr").forEach((b) => b.setAttribute("aria-expanded", "false"));
+      const host = q && qrHost(q), u = q ? qrLink(q) : "";
+      st.qr = host && u ? q : null;
+      if (!st.qr) return;
+      const after = host.querySelector(q.at === "leg" ? ".tc-navm" : q.at === "day" ? ".tc-acts" : ".tc-pact");
+      after.insertAdjacentHTML("afterend", qrHtml(u, q.at === "leg" ? q.mode : ""));
+      after.querySelector(".tc-qr").setAttribute("aria-expanded", "true");
+      wireQr(host);
+      if (q.at === "pop") popSize = null;
+      redraw();
+    }
+    /**
+     * Esc 收起焦点所在那一处最里层弹开的东西：二维码 → 导航菜单 → 地图小卡。
+     * 焦点不在那一处（开着菜单又点了地图）：开着的照样收，焦点不挪——不然这一下 Esc 漏到全局，把正在跑的任务叫停了。
+     * 什么都没开就不管，全局的 Esc 照常
+     */
+    function escClose(t) {
+      const inPop = pop.contains(t), inPanel = panel.contains(t);
+      if (st.qr && (inPop ? st.qr.at === "pop" : inPanel && st.qr.at !== "pop")) {
+        const host = qrHost(st.qr);
+        showQr(null);
+        const b = host && host.querySelector(".tc-qr");
+        if (b) b.focus({ preventScroll: true });
+        return true;
+      }
+      if (inPanel && st.nav >= 0) {
+        const b = panel.querySelector(`.tc-leg[data-leg="${st.nav}"] .tc-navb`);
+        setNav(-1);
+        if (b) b.focus({ preventScroll: true });
+        return true;
+      }
+      if (closePop(!inPanel)) return true;
+      if (st.view !== "map") return false;   // 切到时间线了，地图那边开着的看不见，不替它吃掉这一下
+      if (st.qr) { showQr(null); return true; }
+      if (st.nav >= 0) { setNav(-1); return true; }
+      return false;
+    }
+
+    // ---- 交互 ----
+    el.addEventListener("click", (e) => {
+      // 导航菜单开着、点了它那一行以外的地方：收起（点的是别的「导航 ▾」就换成那一个，下面照常处理）
+      if (st.nav >= 0 && !e.target.closest(`.tc-leg[data-leg="${st.nav}"]`)) setNav(-1);
+      const t = e.target.closest("button, .tc-card, .tc-tlr.go");
+      if (!t || !el.contains(t)) return;
+      const qrAt = (b) => { const at = b.dataset.at, l = b.closest(".tc-leg"); return { at, i: at === "leg" && l ? +l.dataset.leg : -1 }; };
+      if (t.dataset.v) setView(t.dataset.v, true);
+      else if (t.dataset.d != null) setDay(+t.dataset.d, true);
+      else if (t.dataset.z) zoomAt(+t.dataset.z);
+      else if (t.classList.contains("tc-reset")) resetView();
+      else if (t.classList.contains("tc-setkey")) { if (canSetKey()) root.openModal("settings", "map"); }
+      else if (t.classList.contains("tc-retry")) retry(st.day);
+      else if (t.classList.contains("tc-fold")) setFold(!lay.fold);
+      else if (t.classList.contains("tc-found")) {
+        list.hidden = !list.hidden;
+        found.setAttribute("aria-expanded", String(!list.hidden));
+        renderFound();
+      } else if (t.classList.contains("tc-pin")) {
+        // 点钉子：钉子旁边弹小卡（焦点进小卡，键盘接着 Tab），列表也滚到这一站
+        const i = +t.dataset.i;
+        focusStop(i, false);
+        openPop(i, true);
+        const card = panel.querySelector(`.tc-card[data-i="${i}"]`);
+        if (card) panel.scrollTo({ top: panel.scrollTop + card.getBoundingClientRect().top - panel.getBoundingClientRect().top - 12, behavior: "smooth" });
+      } else if (t.classList.contains("tc-px")) closePop(true);
+      else if (t.classList.contains("tc-pgo")) {
+        const j = +t.dataset.go;
+        focusStop(j, false);
+        openPop(j, t.classList.contains("nx") ? ".tc-pgo.nx" : ".tc-pgo:not(.nx)");
+      } else if (t.classList.contains("tc-navb")) {
+        const i = +t.closest(".tc-leg").dataset.leg;
+        setNav(st.nav === i ? -1 : i);
+      } else if (t.classList.contains("tc-qr")) {
+        const q = qrAt(t);
+        const same = st.qr && st.qr.at === q.at && st.qr.i === q.i;
+        const leg = q.at === "leg" ? st.legs[st.day][q.i] : null;
+        showQr(same ? null : { ...q, mode: leg ? legMode(leg) : "" });
+      } else if (t.classList.contains("tc-prov")) setProv(t.dataset.prov === "google" ? "google" : "amap");
+      else if (t.classList.contains("tc-qrm") && st.qr) {
+        showQr({ ...st.qr, mode: t.dataset.m });
+        const b = qrHost(st.qr).querySelector(`.tc-qrm[data-m="${t.dataset.m}"]`);
+        if (b) b.focus({ preventScroll: true });
+      } else if (t.classList.contains("tc-qrx") && st.qr) {
+        const host = qrHost(st.qr);
+        showQr(null);
+        const b = host && host.querySelector(".tc-qr");
+        if (b) b.focus({ preventScroll: true });
+      } else if (t.classList.contains("tc-tlr")) {
+        // 时间线上点一站：切回地图，弹出这一站的小卡
+        const i = +t.dataset.i;
+        setView("map", true);
+        focusStop(i, false);
+        openPop(i, true);
+      } else if (t.classList.contains("tc-card") && !e.target.closest("a")) {
+        const i = +t.dataset.i;
+        focusStop(i, true);
+        if (st.pop >= 0) openPop(i, false);   // 小卡开着就跟着换到这一站；没开着不替人弹
+      }
+    });
+    // 点地图空白处收起小卡；拖过地图松手时浏览器也会补一个 click，那个不算（见下面 dragged）
+    map.addEventListener("click", (e) => {
+      if (dragged(e)) { e.stopImmediatePropagation(); e.preventDefault(); }
+    }, true);
+    map.addEventListener("click", (e) => {
+      if (!e.target.closest(".tc-pop, .tc-zoom, .tc-msg, button, a")) closePop(false);
+    });
+    // 点卡片外面也收起（小卡、导航菜单）；监听挂在 document 上，dispose() 里摘掉
+    const onDocClick = (e) => {
+      // 按派发那一刻的路径算：点「下一站」/换走法会就地重画，点的那颗按钮这时已经不在页面上了
+      if ((st.pop < 0 && st.nav < 0) || dragged(e) || e.composedPath().includes(el)) return;
+      closePop(false);
+      if (st.nav >= 0) setNav(-1);
+    };
+    document.addEventListener("click", onDocClick);
+    el.addEventListener("keydown", (e) => {
+      // Esc：先收这张卡上弹开的东西，并且不再往上传——全局的 Esc 是「让我停下」，会把正在跑的任务叫停
+      if (e.key === "Escape" && !e.isComposing) {
+        if (escClose(e.target)) { e.preventDefault(); e.stopPropagation(); }
+        return;
+      }
+      const card = e.target.closest && !e.target.closest("button, a") && e.target.closest(".tc-card");
+      if (card && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        focusStop(+card.dataset.i, true);
+        if (st.pop >= 0) openPop(+card.dataset.i, false);
+      }
+      const row = e.target.classList && e.target.classList.contains("tc-tlr") && e.target.classList.contains("go") ? e.target : null;
+      if (row && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); row.click(); }
+      if (e.target === split || e.target === grip) {
+        const wide = e.target === split && !narrow();
+        const k = e.key;
+        if (wide && (k === "ArrowLeft" || k === "ArrowRight")) {
+          e.preventDefault();
+          const pw = (lay.fold ? PW.min : okPw(lay.pw) ? lay.pw : panelPct()) + (k === "ArrowLeft" ? 3 : -3);
+          if (pw < PW.min) return setFold(true);
+          lay.fold = false;
+          lay.pw = Math.min(PW.max, pw);
+          applyLayout(); saveLayout(lay); refit();
+        } else if (!wide && (k === "ArrowUp" || k === "ArrowDown")) {
+          e.preventDefault();
+          lay.h = Math.min(MH.max, Math.max(MH.min, map.clientHeight + (k === "ArrowDown" ? 40 : -40)));
+          applyLayout(); saveLayout(lay); refit();
+        } else if (k === "Enter" && e.target === split) { e.preventDefault(); setFold(!lay.fold); }
+      }
+      if (e.target === map && (e.key === "+" || e.key === "=")) zoomAt(1);
+      if (e.target === map && e.key === "-") zoomAt(-1);
+      if (e.target === map && e.key === "0") resetView();
+    });
+    // 拖动：move/up 挂在 window 上——流式输出时整块卡片每 100ms 会被搬一次家，挂在元素上的指针捕获会丢
+    let rs = null;   // 正在拖分隔条 / 底边（只认按下去的那根手指 / 那个鼠标）
+    const panelPct = () => { const w = body.clientWidth; return w ? Math.round((panel.offsetWidth / w) * 1000) / 10 : 41; };
+    function rsStart(e, bar) {
+      if (e.button !== 0 || e.target.closest(".tc-fold") || rs) return;
+      e.preventDefault();
+      const b = body.getBoundingClientRect();
+      rs = { id: e.pointerId, bar, kind: bar === split && !narrow() ? "w" : "h", right: b.right - INSET, width: b.width, y0: e.clientY, h0: map.clientHeight };
+      bar.classList.add("drag");
+      el.classList.add("tc-resizing");
+    }
+    function rsMove(e) {
+      if (rs.kind === "w") {
+        const pw = ((rs.right - e.clientX) / rs.width) * 100;
+        if (pw < PW.min * 0.6) lay.fold = true;   // 拖到快没了就当收起
+        else { lay.fold = false; lay.pw = Math.round(Math.min(PW.max, Math.max(PW.min, pw)) * 10) / 10; }
+      } else lay.h = Math.round(Math.min(MH.max, Math.max(MH.min, rs.h0 + e.clientY - rs.y0)));
+      applyLayout();
+      redraw();
+    }
+    function rsEnd() {
+      rs.bar.classList.remove("drag");
+      el.classList.remove("tc-resizing");
+      rs = null;
+      saveLayout(lay);
+      refit();
+    }
+    split.addEventListener("pointerdown", (e) => rsStart(e, split));
+    grip.addEventListener("pointerdown", (e) => rsStart(e, grip));
+    /*
+     * 地图上的手势：按 pointerId 记每根手指（鼠标就一个）。一指拖着平移；两指按两指中点平移、按两指距离缩放。
+     * 每多按下一根、每抬起一根，都拿当下的位置重新记起点——不然第二根手指一落下，地图就跳到两指中间去。
+     * 缩放只有整数级（瓦片是整级的），两指张开到 √2 倍放大一级、收拢到 1/√2 缩小一级，然后重新记起点接着捏。
+     */
+    const ptrs = new Map();   // pointerId → { x, y, x0, y0 }
+    let gest = null;          // 起点：两指（一指）中点、两指距离、当时的地图中心
+    let moved = false;        // 这一下动过：松手时浏览器补的那个 click 不当「点钉子」「点空白」
+    const mid = () => { const ps = [...ptrs.values()]; return [ps.reduce((a, p) => a + p.x, 0) / ps.length, ps.reduce((a, p) => a + p.y, 0) / ps.length]; };
+    const spread = () => { const [a, b] = [...ptrs.values()]; return b ? Math.hypot(a.x - b.x, a.y - b.y) : 0; };
+    function rebase() {
+      if (!ptrs.size) { gest = null; return; }
+      const [mx, my] = mid();
+      gest = { mx, my, d: spread(), cx: st.cx, cy: st.cy };
+    }
+    /** 松手补的 click 是不是拖动的尾巴：是就吃掉。键盘按出来的 click（detail 为 0）从来不算 */
+    function dragged(e) {
+      if (!moved || !e.detail) return false;
+      moved = false;
+      return true;
+    }
+    const onDownAny = () => { moved = false; };   // 每一下新按下都从「没动过」算起
+    map.addEventListener("pointerdown", (e) => {
+      // 小卡里、缩放按钮、链接上按下去是要点它们，不是拖地图；钉子上按下去可以拖（手机上钉子密，躲不开）
+      if (e.button !== 0 || e.target.closest(".tc-pop, .tc-zoom, a, button:not(.tc-pin)")) return;
+      if (e.isPrimary) ptrs.clear();   // 头一根手指：上一下没收到抬起的残留清掉
+      if (ptrs.size >= 2) return;      // 第三根手指不管
+      stopFly();
+      ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
+      rebase();
+      map.classList.add("grab");
+    });
+    const onMove = (e) => {
+      if (rs) { if (e.pointerId === rs.id) rsMove(e); return; }
+      const p = ptrs.get(e.pointerId);
+      if (!p || !gest) return;
+      // 鼠标在窗口外松的手、没收到抬起：键都没按着了还在动，当已经松手，不让地图跟着鼠标跑
+      if (e.pointerType === "mouse" && !e.buttons) return onUp(e);
+      p.x = e.clientX; p.y = e.clientY;
+      // 真挪动了才算「动过地图」：之后框变了、列表拉宽了都不再自作主张地重新取景
+      if (ptrs.size > 1 || Math.abs(p.x - p.x0) > 4 || Math.abs(p.y - p.y0) > 4) moved = st.moved = true;
+      const [mx, my] = mid();
+      st.cx = gest.cx - (mx - gest.mx);
+      st.cy = gest.cy - (my - gest.my);
+      const r = gest.d ? spread() / gest.d : 1;
+      if (r >= Math.SQRT2 || r <= Math.SQRT1_2) {
+        const b = map.getBoundingClientRect();
+        zoomAt(r > 1 ? 1 : -1, mx - b.left, my - b.top);
+        rebase();
+      }
+      redraw();
+    };
+    const onUp = (e) => {
+      if (rs && e.pointerId === rs.id) rsEnd();
+      if (!ptrs.delete(e.pointerId)) return;
+      rebase();   // 两指抬起一指：剩下那根从它现在的位置接着拖，不跳
+      if (!ptrs.size) map.classList.remove("grab");
+    };
+    window.addEventListener("pointerdown", onDownAny, true);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    map.addEventListener("dblclick", (e) => {
+      if (e.target.closest(".tc-pop, button, a")) return;
+      const r = map.getBoundingClientRect();
+      zoomAt(1, e.clientX - r.left, e.clientY - r.top);
+    });
+    // 滚轮只在按住 ⌘/Ctrl（触控板双指捏合也是这个）时缩放：普通滚轮留给聊天记录上下翻
+    let wheelAcc = 0;
+    map.addEventListener("wheel", (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      wheelAcc += e.deltaY;
+      if (Math.abs(wheelAcc) < 40) return;
+      const r = map.getBoundingClientRect();
+      zoomAt(wheelAcc < 0 ? 1 : -1, e.clientX - r.left, e.clientY - r.top);
+      wheelAcc = 0;
+    }, { passive: false });
+    panel.addEventListener("mouseover", (e) => {
+      const c = e.target.closest(".tc-card");
+      pinsEl.querySelectorAll(".tc-pin").forEach((p) => p.classList.toggle("hot", !!c && p.dataset.i === c.dataset.i));
+    });
+    panel.addEventListener("mouseleave", () => pinsEl.querySelectorAll(".tc-pin.hot").forEach((p) => p.classList.remove("hot")));
+    // 反过来也一样：鼠标停在钉子上，列表里那张卡片亮
+    map.addEventListener("mouseover", (e) => {
+      const b = e.target.closest(".tc-pin");
+      panel.querySelectorAll(".tc-card").forEach((c) => c.classList.toggle("hot", !!b && c.dataset.i === b.dataset.i));
+    });
+    map.addEventListener("mouseleave", () => panel.querySelectorAll(".tc-card.hot").forEach((c) => c.classList.remove("hot")));
+
+    // 地图框变了（拖高矮、窗口宽窄）：还没动过地图就照新的框重新取景
+    const ro = typeof ResizeObserver === "function" ? new ResizeObserver(() => { if (st.fitted !== st.day || !st.moved) fit(true); popSize = null; redraw(); }) : null;
+    if (ro) ro.observe(map);
+    function start() {
+      if (st.started) return;
+      st.started = true;
+      if (!st.places[st.day]) { msg.hidden = false; msg.textContent = "正在找地点…"; }
+      prefetch();
+    }
+    // 一直盯着进没进视野：滚出去了 prefetch 停手，滚回来接着查
+    const io = typeof IntersectionObserver === "function"
+      ? new IntersectionObserver((es) => {
+        st.visible = es[es.length - 1].isIntersecting;
+        if (st.visible) { if (st.started) prefetch(); else start(); }
+      }, { rootMargin: "200px" })
+      : null;
+
+    setDay(0);
+    setView("map");
+    renderFound();
+    return {
+      el, key,
+      attached() {
+        if (io) io.observe(el);
+        else { st.visible = true; if (st.started) prefetch(); else start(); }
+        redraw();
+      },
+      /** 设置改了（resetConfig）：按新设置从头查一遍。不在视野里的等进来再查 */
+      reload() {
+        st.cfg = null; st.alert = ""; st.fitted = -1; st.src = "";
+        st.places = it.days.map(() => null);
+        st.why = it.days.map(() => []);
+        st.legs = it.days.map(() => []);
+        st.loading = it.days.map(() => null);
+        st.notes = it.days.map(() => new Set());
+        renderAlert();
+        renderFound();
+        setDay(st.day);
+        if (st.started) prefetch();
+      },
+      dispose() {
+        stopFly();
+        if (io) io.disconnect();
+        if (ro) ro.disconnect();
+        window.removeEventListener("pointerdown", onDownAny, true);
+        document.removeEventListener("click", onDocClick);
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        window.removeEventListener("pointercancel", onUp);
+      },
+      _state: st,
+    };
+  }
+
+  // ---------------- 点活 ----------------
+  /** key → 这份数据的活卡片们。离开页面超过 10 秒没被搬回来的，收掉 */
+  const live = new Map();
+  function prune() {
+    const now = Date.now();
+    for (const [k, ws] of live) {
+      const keep = ws.filter((w) => {
+        if (w.el.isConnected) { w.offSince = 0; return true; }
+        if (!w.offSince) { w.offSince = now; return true; }
+        if (now - w.offSince < 10000) return true;
+        w.dispose();
+        return false;
+      });
+      if (keep.length) live.set(k, keep); else live.delete(k);
+    }
+  }
+  function hydrate(host) {
+    if (!host || host.dataset.tcOn) return;
+    host.dataset.tcOn = "1";
+    const key = host.dataset.tcKey || "";
+    prune();
+    let w = (live.get(key) || []).find((x) => !x.el.isConnected);
+    if (!w) {
+      let it = null;
+      try { it = normalize(JSON.parse(host.dataset.tc || ""), true); } catch (e) { /* 数据坏了就留着静态那份 */ }
+      if (!it) return;
+      w = makeWidget(it, key);
+      if (!live.has(key)) live.set(key, []);
+      live.get(key).push(w);
+    }
+    w.offSince = 0;
+    host.classList.add("tc-on");
+    host.replaceChildren(w.el);
+    w.attached();
+  }
+  function hydrateAll(scope) {
+    const s = scope || document;
+    if (s.nodeType === 1 && s.matches(".tc[data-tc]")) hydrate(s);
+    if (s.querySelectorAll) s.querySelectorAll(".tc[data-tc]:not([data-tc-on])").forEach(hydrate);
+  }
+  let watching = false;
+  function watch() {
+    if (watching || typeof MutationObserver !== "function" || !document.body) return;
+    watching = true;
+    // 「让 AI 重写这段」：只把话填进输入框，发不发由人定
+    document.addEventListener("click", (e) => {
+      const b = e.target && e.target.closest ? e.target.closest(".tc-redo") : null;
+      const box = b && b.closest(".tc-bad");
+      const input = document.getElementById("input");
+      if (!box || !input || typeof root.insertAtCursor !== "function") return;
+      const c = box.querySelector("pre code");
+      root.insertAtCursor(input, redoText(whyBad(c ? c.textContent : "")));
+    });
+    hydrateAll(document);
+    new MutationObserver((ms) => {
+      for (const m of ms) for (const n of m.addedNodes) if (n.nodeType === 1) hydrateAll(n);
+    }).observe(document.body, { childList: true, subtree: true });
+  }
+  if (typeof document !== "undefined") {
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", watch, { once: true });
+    else watch();
+  }
+
+  root.TripCard = {
+    parse, normalize, whyBad, moreText, segmentOf, dayLabel, cardHtml, staticHtml, staticOf, unescHtml, hashKey,
+    wgsToGcj, gcjToWgs, convert, inChina, distance, legNavUrl, dayNavUrl, stopNavUrl, navApp, NAV_MODES, DAY_MAX, fmtDist, fmtDur,
+    hydrate, hydrateAll, resetConfig, LIMIT, _live: live,
+  };
+})(window);

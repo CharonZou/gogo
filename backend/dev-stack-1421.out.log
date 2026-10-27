@@ -1,0 +1,82 @@
+
+==> Step 1/2: Starting Gateway (LangGraph in-process) [Web/External]
+  Preferred port: Gateway=8012
+  Selected port:  Gateway=8012 (LangGraph in-process)
+  N_JOBS_PER_WORKER (LangGraph in-process): 10
+  GoGo CLI (dev): D:\MyProject\GoGo\gogo-app\backend\.venv\Scripts\GoGo.exe
+  GoGo_CONFIG_PATH (dev backend): D:\MyProject\GoGo\gogo-app\config.yaml
+  GoGo_MISSION_STATE_ENABLED (dev): true
+
+==> Opening Gateway window (:8012) �?LangGraph runs in-process
+    CORS_ORIGINS (desktop web): http://localhost:1420,http://127.0.0.1:1420,http://localhost:1421,http://127.0.0.1:1421,http://tauri.localhost,tauri://localhost
+
+==> Waiting for Gateway port (this window stays open)...
+
+Backend startup result:
+  Gateway   (8012): True (LangGraph in-process)
+  会话调试（提示词/工具/响应摘要�? http://127.0.0.1:8012/api/debug/agent-trace
+
+Console host PID (also in D:\MyProject\GoGo\gogo-app\temp\GoGo-backend-console-pids.txt):
+  Gateway window PID=18560
+
+Stop: close the Gateway window, OR run stop-backend.ps1
+Optional file logs still work if you redirect yourself; default is live console only.
+Desktop web (Tauri devUrl): http://localhost:1420 | start separately: scripts\windows\start-evopanel-web.ps1
+
+==> Step 2/2: Starting frontend
+    Gateway URL: http://127.0.0.1:8012
+    Gateway source: started Gateway port (8012, LangGraph in-process)
+    Mode: Web only (vite)
+    Frontend preferred port: 1421
+    Frontend selected port:  1421
+    Frontend URL: http://localhost:1421
+
+==> Running frontend in current terminal (Ctrl+C to stop frontend)
+
+> gogo@1.0.1 dev
+> vite --host 0.0.0.0 --port 1421 --strictPort
+
+
+  [32m[1mVITE[22m v6.4.2[39m  [2mready in [0m[1m7457[22m[2m[0m ms[22m
+
+  [32m➜[39m  [1mLocal[22m:   [36mhttp://localhost:[1m1421[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.2.5:[1m1421[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://192.168.2.9:[1m1421[22m/[39m
+  [32m➜[39m  [1mNetwork[22m: [36mhttp://172.25.160.1:[1m1421[22m/[39m
+[2m20:11:14[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m20:11:24[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m20:11:58[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m23:32:25[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:32:30[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:32:49[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:32:55[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:33:09[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:33:19[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:33:36[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:33:44[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:34:22[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m23:34:43[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/ChatApp.tsx, /src/style/asset-center.css[22m
+[2m23:37:38[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:38:29[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:42:54[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:43:01[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:43:06[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:43:17[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m23:43:39[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m23:47:44[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:47:48[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m23:50:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:50:09[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m23:53:08[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/ChatApp.tsx, /src/style/asset-center.css[22m
+[2m00:08:00[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m00:08:04[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m00:09:19[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/ChatApp.tsx, /src/style/asset-center.css[22m
+[2m00:20:31[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m00:21:14[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m00:21:33[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m01:18:50[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m01:37:32[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m01:37:37[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m01:37:51[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m
+[2m01:38:03[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/style/react-chat.css, /src/style/asset-center.css[22m
+[2m02:28:28[22m [36m[1m[vite][22m[39m [90m[2m(client)[22m[39m [32mhmr update [39m[2m/src/react/components/ChatWorkspaceInfoRail.tsx, /src/style/asset-center.css[22m

@@ -1,0 +1,1150 @@
+/* WebUI 企业登录页 — 商务分栏，非消费级紫渐变 */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap');
+
+.webui-login-page {
+  --login-ink: #0c1a2a;
+  --login-ink-soft: #1a3348;
+  --login-slate: #5b6b7c;
+  --login-line: #d7dee6;
+  --login-paper: #f7f8fa;
+  --login-card: #ffffff;
+  --login-accent: #0f6e6a;
+  --login-accent-hover: #0c5a57;
+  --login-accent-soft: rgba(15, 110, 106, 0.12);
+  --login-danger: #b42318;
+  --login-danger-bg: #fef3f2;
+  --login-font: 'IBM Plex Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --login-display: 'Source Serif 4', 'Songti SC', 'Noto Serif SC', Georgia, serif;
+
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  font-family: var(--login-font);
+  color: var(--login-ink);
+  background: var(--login-paper);
+}
+
+.webui-login-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.05fr) minmax(320px, 0.95fr);
+  width: 100%;
+  max-width: 1080px;
+  min-height: 100dvh;
+  margin: 0 auto;
+}
+
+/* —— 左侧品牌面 —— */
+.webui-login-brand-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(32px, 6vh, 56px) clamp(28px, 4vw, 48px);
+  color: #e8eef4;
+  background:
+    linear-gradient(160deg, rgba(15, 110, 106, 0.18) 0%, transparent 42%),
+    linear-gradient(180deg, var(--login-ink) 0%, var(--login-ink-soft) 100%);
+  overflow: hidden;
+  animation: webui-login-brand-in 0.55s ease-out both;
+}
+
+.webui-login-brand-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(232, 238, 244, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(232, 238, 244, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(ellipse 80% 70% at 30% 40%, #000 20%, transparent 75%);
+  pointer-events: none;
+}
+
+.webui-login-brand-panel::after {
+  content: '';
+  position: absolute;
+  width: 280px;
+  height: 280px;
+  right: -80px;
+  bottom: -60px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(15, 110, 106, 0.35) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.webui-login-brand-inner {
+  position: relative;
+  z-index: 1;
+  max-width: 420px;
+}
+
+.webui-login-brand-markrow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 36px;
+}
+
+.webui-login-mark {
+  width: 40px;
+  height: 40px;
+  color: #9fd8d4;
+  flex-shrink: 0;
+}
+
+.webui-login-brand-word {
+  font-family: var(--login-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: #f4f7fa;
+}
+
+.webui-login-brand-kicker {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #9fd8d4;
+}
+
+.webui-login-brand-title {
+  margin: 0;
+  font-family: var(--login-display);
+  font-size: clamp(40px, 5.5vw, 56px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.webui-login-brand-lead {
+  margin: 18px 0 0;
+  font-size: 15px;
+  line-height: 1.65;
+  color: rgba(232, 238, 244, 0.78);
+  max-width: 34ch;
+}
+
+.webui-login-brand-points {
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.webui-login-brand-points li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 13px;
+  color: rgba(232, 238, 244, 0.72);
+}
+
+.webui-login-brand-points li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 8px;
+  height: 1.5px;
+  background: #9fd8d4;
+}
+
+.webui-login-brand-foot {
+  position: relative;
+  z-index: 1;
+  margin: 40px 0 0;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(232, 238, 244, 0.4);
+}
+
+/* —— 右侧表单 —— */
+.webui-login-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(28px, 5vh, 48px) clamp(24px, 5vw, 56px);
+  background: var(--login-card);
+  border-left: 1px solid var(--login-line);
+  animation: webui-login-panel-in 0.5s ease-out 0.08s both;
+}
+
+.webui-login-panel-head {
+  margin-bottom: 28px;
+}
+
+.webui-login-eyebrow {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--login-accent);
+}
+
+.webui-login-panel-title {
+  margin: 0;
+  font-family: var(--login-display);
+  font-size: clamp(26px, 3vw, 32px);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--login-ink);
+  line-height: 1.2;
+}
+
+.webui-login-panel-desc {
+  margin: 10px 0 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--login-slate);
+  max-width: 42ch;
+}
+
+.webui-login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.webui-login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.webui-login-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--login-ink-soft);
+}
+
+.webui-login-input {
+  width: 100%;
+  padding: 12px 14px;
+  font-size: 15px;
+  font-family: inherit;
+  line-height: 1.4;
+  border: 1px solid var(--login-line);
+  border-radius: 6px;
+  outline: none;
+  background: var(--login-paper);
+  color: var(--login-ink);
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+
+.webui-login-input::placeholder {
+  color: #9aa7b5;
+}
+
+.webui-login-input:focus {
+  border-color: var(--login-accent);
+  box-shadow: 0 0 0 3px var(--login-accent-soft);
+  background: #fff;
+}
+
+.webui-login-submit {
+  margin-top: 6px;
+  width: 100%;
+  padding: 13px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #fff;
+  background: var(--login-accent);
+  transition: background 0.18s, transform 0.12s;
+}
+
+.webui-login-submit:hover:not(:disabled) {
+  background: var(--login-accent-hover);
+}
+
+.webui-login-submit:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.webui-login-submit:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.webui-login-error {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--login-danger);
+  background: var(--login-danger-bg);
+  border: 1px solid rgba(180, 35, 24, 0.2);
+}
+
+.webui-login-error[hidden] {
+  display: none !important;
+}
+
+.webui-login-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 8px;
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--login-line);
+  font-size: 12px;
+  color: var(--login-slate);
+  line-height: 1.55;
+}
+
+.webui-login-footer svg {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  color: var(--login-accent);
+  opacity: 0.85;
+}
+
+.webui-login-version {
+  margin-top: 18px;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #9aa7b5;
+}
+
+.webui-login-qr-status {
+  padding: 8px 0 4px;
+}
+
+.webui-login-spinner {
+  width: 36px;
+  height: 36px;
+  margin: 0 0 16px;
+  border: 2px solid var(--login-line);
+  border-top-color: var(--login-accent);
+  border-radius: 50%;
+  animation: webui-login-spin 0.75s linear infinite;
+}
+
+.webui-login-qr-text {
+  margin: 0;
+  font-size: 14px;
+  color: var(--login-slate);
+}
+
+.webui-login-qr-error {
+  margin-top: 8px;
+}
+
+.webui-login-qr-error-title {
+  margin: 0 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--login-danger);
+}
+
+.webui-login-qr-error-msg {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--login-slate);
+}
+
+.webui-login-link-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 16px;
+  padding: 11px 20px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  text-decoration: none;
+  color: #fff;
+  background: var(--login-accent);
+  transition: background 0.18s;
+}
+
+.webui-login-link-btn:hover {
+  background: var(--login-accent-hover);
+}
+
+.webui-login-link-btn--ghost {
+  width: 100%;
+  color: var(--login-ink-soft);
+  background: transparent;
+  border: 1px solid var(--login-line);
+}
+
+.webui-login-link-btn--ghost:hover {
+  background: var(--login-paper);
+  color: var(--login-ink);
+}
+
+.webui-login-sso {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 6px;
+  border: 1px solid var(--login-line);
+  background: var(--login-paper);
+  color: var(--login-ink);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.18s, background 0.18s;
+}
+
+.webui-login-sso svg {
+  width: 18px;
+  height: 18px;
+  color: var(--login-accent);
+}
+
+.webui-login-sso:hover {
+  border-color: var(--login-accent);
+  background: #fff;
+}
+
+.webui-login-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 14px;
+  color: #9aa7b5;
+  font-size: 12px;
+}
+
+.webui-login-divider::before,
+.webui-login-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--login-line);
+}
+
+@keyframes webui-login-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes webui-login-brand-in {
+  from { opacity: 0; transform: translateX(-12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes webui-login-panel-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 840px) {
+  .webui-login-layout {
+    grid-template-columns: 1fr;
+    max-width: 480px;
+    min-height: auto;
+    margin: 0;
+    width: 100%;
+  }
+
+  .webui-login-page {
+    align-items: flex-start;
+    padding: 0;
+  }
+
+  .webui-login-brand-panel {
+    min-height: auto;
+    padding: 28px 24px 32px;
+  }
+
+  .webui-login-brand-title {
+    font-size: 36px;
+  }
+
+  .webui-login-brand-points {
+    display: none;
+  }
+
+  .webui-login-brand-foot {
+    display: none;
+  }
+
+  .webui-login-panel {
+    border-left: none;
+    border-top: 1px solid var(--login-line);
+    padding: 28px 24px 36px;
+    min-height: 60dvh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .webui-login-brand-panel,
+  .webui-login-panel,
+  .webui-login-spinner {
+    animation: none;
+  }
+}
+
+
+/* 水波纹焦散背景 */
+.webui-login-caustic {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+  pointer-events: auto;
+  opacity: 0.9;
+}
+
+/* 确保品牌面板内容在水波纹之上 */
+.webui-login-brand-inner,
+.webui-login-brand-foot {
+  position: relative;
+  z-index: 1;
+}
+
+/* 品牌面板背景改为透明，让水波纹显示出来 */
+.webui-login-brand-panel {
+  background: linear-gradient(180deg, #04121a 0%, #0a1f2e 100%);
+}
+
+.webui-login-brand-panel::before {
+  display: none;
+}
+
+.webui-login-brand-panel::after {
+  display: none;
+}
+
+
+/* ===== 切换用户页（#/login?switch=1）专属样式 ===== */
+
+/* 当前身份卡 */
+.webui-login-switch-current {
+  margin: 4px 0 22px;
+}
+
+.webui-login-switch-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--login-accent);
+  background: var(--login-accent-soft);
+}
+
+.webui-login-switch-current-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--login-line);
+  border-radius: 12px;
+  background: var(--login-paper);
+  transition: border-color 0.18s, box-shadow 0.18s;
+}
+
+.webui-login-switch-current-card:hover {
+  border-color: rgba(15, 110, 106, 0.4);
+  box-shadow: 0 2px 12px rgba(12, 26, 42, 0.06);
+}
+
+.webui-login-switch-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--login-accent-soft);
+  color: var(--login-accent);
+  overflow: hidden;
+}
+
+.webui-login-switch-avatar--img img {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  object-fit: cover;
+  display: block;
+}
+
+.webui-login-switch-avatar--icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.webui-login-switch-current-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.webui-login-switch-current-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--login-ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.webui-login-switch-current-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--login-slate);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.webui-login-switch-arrow {
+  display: block;
+  margin: 10px auto 4px;
+  width: 20px;
+  height: 20px;
+  color: #9aa7b5;
+}
+
+/* 带图标 / 带可见性切换的输入框 */
+.webui-login-input-wrap {
+  position: relative;
+}
+
+.webui-login-input-wrap > svg {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #9aa7b5;
+  pointer-events: none;
+}
+
+.webui-login-input-wrap--icon .webui-login-input {
+  padding-left: 36px;
+}
+
+.webui-login-input-wrap--with-toggle .webui-login-input {
+  padding-right: 44px;
+}
+
+.webui-login-pw-toggle {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #9aa7b5;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.webui-login-pw-toggle:hover {
+  color: var(--login-accent);
+  background: var(--login-accent-soft);
+}
+
+.webui-login-pw-toggle--active {
+  color: var(--login-accent);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   Gogo 切换工作身份页（#/login?switch=1）· 工作台风格身份卡
+   琥珀黄强调：主操作与图标统一 #D9A406；暖白底彻底去绿
+   ═══════════════════════════════════════════════════════════ */
+.gogo-switch-page {
+  --gogo-accent: #d9a406;
+  --gogo-accent-strong: #c08f00;
+  --gogo-on-accent: #2a2200;
+  --gogo-accent-soft: rgba(217, 164, 6, 0.10);
+  --gogo-accent-soft-2: rgba(217, 164, 6, 0.16);
+  --gogo-glow: rgba(217, 164, 6, 0.26);
+  --gogo-ink-1: #2b2118;
+  --gogo-ink-2: #4a3b2c;
+  --gogo-ink-3: #7a6a55;
+  --gogo-line: rgba(43, 33, 24, 0.10);
+  --gogo-bad: #b42318;
+  --gogo-bad-ink: #8c2b1f;
+  --gogo-bad-bg: #fcf1ef;
+
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  background: #f3f1ec;
+  padding: 40px 20px;
+  box-sizing: border-box;
+}
+.gogo-switch-stage {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(52% 42% at 18% 20%, rgba(217, 164, 6, 0.09), transparent 70%),
+    radial-gradient(46% 40% at 84% 78%, rgba(196, 99, 63, 0.06), transparent 70%),
+    #f3f1ec;
+}
+.gogo-switch-stage::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(43, 33, 24, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(43, 33, 24, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 15%, transparent 78%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 15%, transparent 78%);
+}
+.gogo-switch-shell {
+  position: relative;
+  z-index: 1;
+  width: min(480px, 100%);
+  background: #fdfefd;
+  border: 1px solid var(--gogo-line);
+  border-radius: 20px;
+  box-shadow:
+    0 1px 2px rgba(43, 33, 24, 0.05),
+    0 10px 24px -8px rgba(43, 33, 24, 0.09),
+    0 32px 64px -24px rgba(43, 33, 24, 0.14);
+  padding: 44px 44px 30px;
+  box-sizing: border-box;
+  animation: gogo-card-in 0.55s cubic-bezier(0.22, 0.75, 0.3, 1) both;
+}
+@media (max-width: 560px) {
+  .gogo-switch-shell { padding: 30px 22px 24px; border-radius: 18px; }
+}
+@keyframes gogo-card-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── 顶行：品牌 mark + 场景徽标 ── */
+.gogo-switch-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 26px;
+}
+.gogo-switch-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.gogo-switch-mark-sq {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--gogo-accent) 0%, #f0c94d 100%);
+  box-shadow: 0 4px 12px -2px var(--gogo-glow);
+  color: #fff;
+  font-weight: 700;
+  font-size: 17px;
+  letter-spacing: 0.01em;
+}
+.gogo-switch-mark-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gogo-ink-1);
+  letter-spacing: 0.01em;
+}
+.gogo-switch-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--gogo-line);
+  border-radius: 999px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--gogo-ink-3);
+  background: #f7f5f0;
+}
+.gogo-switch-tag svg {
+  width: 13px;
+  height: 13px;
+  color: var(--gogo-accent);
+}
+
+/* ── 标题区 ── */
+.gogo-switch-title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--gogo-ink-1);
+}
+.gogo-switch-desc {
+  margin: 8px 0 0;
+  font-size: 13.5px;
+  color: var(--gogo-ink-3);
+  max-width: 38ch;
+}
+
+/* ── 当前身份卡 ── */
+.gogo-switch-cur {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 26px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--gogo-line);
+  border-radius: 14px;
+  background: #f7f5f0;
+}
+.gogo-switch-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--gogo-accent-soft-2);
+  color: var(--gogo-accent);
+}
+.gogo-switch-avatar svg {
+  width: 22px;
+  height: 22px;
+}
+.gogo-switch-avatar--img img {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+.gogo-switch-cur-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.gogo-switch-cur-name {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--gogo-ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gogo-switch-cur-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--gogo-ink-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.gogo-switch-badge {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gogo-accent);
+  background: var(--gogo-accent-soft);
+  border: 1px solid rgba(217, 164, 6, 0.18);
+}
+.gogo-switch-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+/* ── 中间箭头 ── */
+.gogo-switch-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 10px auto 4px;
+  border-radius: 50%;
+  background: var(--gogo-accent-soft);
+  color: var(--gogo-accent);
+  animation: gogo-arrow-float 2.2s cubic-bezier(0.22, 0.75, 0.3, 1) infinite alternate;
+}
+.gogo-switch-arrow svg {
+  width: 15px;
+  height: 15px;
+}
+@keyframes gogo-arrow-float {
+  from { transform: translateY(-2px); }
+  to { transform: translateY(2px); }
+}
+
+/* ── 表单 ── */
+.gogo-switch-form {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 14px;
+}
+.gogo-switch-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.gogo-switch-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--gogo-ink-2);
+}
+.gogo-switch-ctl {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.gogo-switch-ctl > svg {
+  position: absolute;
+  left: 13px;
+  width: 16px;
+  height: 16px;
+  color: var(--gogo-ink-3);
+  pointer-events: none;
+}
+.gogo-switch-ctl input {
+  width: 100%;
+  height: 44px;
+  padding: 0 40px 0 40px;
+  border: 1px solid var(--gogo-line);
+  border-radius: 10px;
+  background: #fff;
+  font-size: 14px;
+  color: var(--gogo-ink-1);
+  box-sizing: border-box;
+  transition: border-color 0.18s, box-shadow 0.18s, background 0.18s;
+}
+.gogo-switch-ctl input::placeholder {
+  color: var(--gogo-ink-3);
+  opacity: 0.85;
+}
+.gogo-switch-ctl input:focus {
+  border-color: var(--gogo-accent);
+  box-shadow: 0 0 0 3px var(--gogo-accent-soft);
+  outline: none;
+}
+.gogo-switch-eye {
+  position: absolute;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  color: var(--gogo-ink-3);
+  cursor: pointer;
+  transition: color 0.18s, background 0.18s;
+}
+.gogo-switch-eye:hover {
+  color: var(--gogo-accent);
+  background: var(--gogo-accent-soft);
+}
+.gogo-switch-eye--active {
+  color: var(--gogo-accent);
+}
+.gogo-switch-eye svg {
+  width: 17px;
+  height: 17px;
+  pointer-events: none;
+}
+
+/* ── 错误提示：表单内绝对定位，不跳版 ── */
+.gogo-switch-err {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 54px;
+  z-index: 2;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--gogo-bad-bg);
+  border: 1px solid rgba(180, 35, 24, 0.22);
+  font-size: 12.5px;
+  color: var(--gogo-bad-ink);
+}
+.gogo-switch-err[hidden] {
+  display: none;
+}
+
+/* ── 主操作 ── */
+.gogo-switch-go {
+  margin-top: 6px;
+  width: 100%;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--gogo-accent);
+  color: var(--gogo-on-accent);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  box-shadow: 0 6px 16px -4px var(--gogo-glow);
+  transition: background 0.18s, transform 0.12s, box-shadow 0.18s;
+}
+.gogo-switch-go:hover:not(:disabled) {
+  background: var(--gogo-accent-strong);
+  box-shadow: 0 8px 20px -4px var(--gogo-glow);
+}
+.gogo-switch-go:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.gogo-switch-go:disabled {
+  opacity: 0.75;
+  cursor: default;
+}
+
+/* ── 页脚：说明 + 取消 + 版本 ── */
+.gogo-switch-foot {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--gogo-line);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.gogo-switch-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--gogo-ink-3);
+  line-height: 1.55;
+}
+.gogo-switch-note svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  margin-top: 2px;
+  color: var(--gogo-accent);
+  opacity: 0.8;
+}
+.gogo-switch-cancel {
+  width: 100%;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--gogo-line);
+  border-radius: 10px;
+  color: var(--gogo-ink-2);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  box-sizing: border-box;
+  transition: border-color 0.18s, background 0.18s, color 0.18s;
+}
+.gogo-switch-cancel:hover {
+  border-color: var(--gogo-accent);
+  color: var(--gogo-accent);
+  background: var(--gogo-accent-soft);
+}
+.gogo-switch-cancel svg {
+  width: 15px;
+  height: 15px;
+}
+.gogo-switch-ver {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: 10.5px;
+  letter-spacing: 0.05em;
+  color: var(--gogo-ink-3);
+  opacity: 0.75;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gogo-switch-shell,
+  .gogo-switch-arrow {
+    animation: none;
+  }
+}
+
+/* ── 账号密码登录卡：企业 SSO 入口按钮 ── */
+.gogo-switch-sso {
+  margin-top: 22px;
+  width: 100%;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid var(--gogo-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--gogo-ink-2);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: border-color 0.18s, background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+.gogo-switch-sso:hover {
+  border-color: var(--gogo-accent);
+  color: var(--gogo-accent);
+  background: var(--gogo-accent-soft);
+  box-shadow: 0 4px 12px -4px var(--gogo-glow);
+}
+.gogo-switch-sso svg {
+  width: 16px;
+  height: 16px;
+}
+
+.gogo-switch-sso--busy {
+  opacity: 0.7;
+  cursor: default;
+}

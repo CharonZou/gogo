@@ -1,0 +1,34 @@
+2026-10-12 23:10:19 [info     ] Using langgraph_runtime_inmem
+2026-10-12 23:10:19 [info     ] Using auth of type=noop
+2026-10-12 23:10:20 [info     ] Configuring custom checkpointer at ./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer
+
+This replaces the default persistence backend.
+Required methods: aget, aget_tuple, aput, aput_writes, alist.
+Recommended methods: adelete_thread, adelete_for_runs, acopy_thread, aprune.
+Missing methods will degrade functionality — see startup logs for details.
+2026-10-12 23:10:20 [info     ] Loading checkpointer ./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer checkpointer_path=./packages/harness/gogo/agents/checkpointer/async_provider.py:make_checkpointer elapsed_seconds=0.0014339999997901032 name=_load_checkpointer
+2026-10-12 23:10:20 [info     ] Using custom checkpointer: OmitTranscriptCheckpointer kind="<class 'gogo.agents.checkpointer.omit_transcript.OmitTranscriptCheckpointer'>"
+2026-10-12 23:10:20 [warning  ] Custom checkpointer missing adelete_thread: DELETE /threads/<id> will fail. Thread deletion and delete_all pruning are not supported.
+2026-10-12 23:10:20 [warning  ] Custom checkpointer missing adelete_for_runs: multitask_strategy='rollback' will not clean up checkpoints from cancelled runs. Thread state may reflect the rolled-back run until a new run completes.
+2026-10-12 23:10:20 [info     ] Custom checkpointer missing acopy_thread: using generic fallback (functional but slower). POST /threads/<id>/copy will re-insert checkpoints one-by-one via aput/aput_writes.
+2026-10-12 23:10:20 [warning  ] Custom checkpointer missing aprune: thread history pruning (keep_latest) is not supported. Old checkpoints will accumulate and storage usage will grow without bound for long-lived threads.
+2026-10-12 23:10:21 [info     ] Importing graph with id lead_agent elapsed_seconds=0.17957970000043133 graph_id=lead_agent module=gogo.agents.lead_agent.agent name=_graph_from_spec path=None
+2026-10-12 23:10:21 [info     ] Importing graph with id claude_code_chat elapsed_seconds=0.002127100000052451 graph_id=claude_code_chat module=gogo.agents.claude_code_chat_graph name=_graph_from_spec path=None
+2026-10-12 23:10:21 [info     ] Importing graph with id goal_agent elapsed_seconds=0.00015080000002853922 graph_id=goal_agent module=gogo.agents.goal.goal_graph name=_graph_from_spec path=None
+[AGENT-TIMING] refresh_chat_models_db=5ms
+[AGENT-TIMING] graph_get_or_build=4554ms cached=False[AGENT-TIMING] graph_get_or_build=4341ms cached=False
+
+[AGENT-TIMING] make_lead_agent_total=4785ms cached=False[AGENT-TIMING] make_lead_agent_total=4359ms cached=False
+
+[AGENT-TIMING] graph_get_or_build=148ms cached=False
+[AGENT-TIMING] make_lead_agent_total=171ms cached=False
+[AGENT-TIMING] graph_get_or_build=154ms cached=False
+[AGENT-TIMING] make_lead_agent_total=174ms cached=False
+[AGENT-TIMING] graph_get_or_build=364ms cached=False
+[AGENT-TIMING] make_lead_agent_total=384ms cached=False
+[AGENT-TIMING] graph_get_or_build=369ms cached=False
+[AGENT-TIMING] make_lead_agent_total=387ms cached=False
+[AGENT-TIMING] graph_get_or_build=0ms cached=True[AGENT-TIMING] graph_get_or_build=0ms cached=True
+[AGENT-TIMING] make_lead_agent_total=20ms cached=True
+
+[AGENT-TIMING] make_lead_agent_total=22ms cached=True

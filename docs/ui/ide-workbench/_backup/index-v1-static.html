@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GoGo IDE 工作台 · UI 设计稿</title>
+<script src="https://sf3-scmcdn-cn.feishucdn.com/obj/feishu-static/miaoda/coding-unpkg-sdk/@lark-apaas/coding-registry-buildless@0.1.22/scripts/design-canvas.js"></script>
+<style>
+  :root {
+    --ink: #1c2430;
+    --ink-2: #5a6472;
+    --ink-3: #8b94a3;
+    --line: #e5eaf1;
+    --brand: #2f6fed;
+    --bg-page: #f2f4f8;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; background: var(--bg-page); }
+  body { font-family: "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, sans-serif; color: var(--ink); }
+  .page-head { max-width: 1400px; margin: 0 auto; padding: 28px 32px 8px; }
+  .page-head h1 { font-size: 22px; margin: 0 0 6px; letter-spacing: .2px; }
+  .page-head .sub { font-size: 13px; color: var(--ink-2); margin: 0 0 16px; line-height: 1.7; }
+  .assume { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; font-size: 12.5px; color: var(--ink-2); line-height: 1.8; margin-bottom: 8px; }
+  .assume b { color: var(--ink); font-weight: 600; }
+  .assume code { font-family: Consolas, "Courier New", monospace; font-size: 12px; background: #f2f5f9; padding: 1px 5px; border-radius: 4px; color: #33415c; }
+
+  /* ===== 通用：IDE 界面构件（两变体共用结构） ===== */
+  .ide { display: flex; flex-direction: column; border-radius: 12px; overflow: hidden; }
+  .ide-top { display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 14px; flex: 0 0 auto; }
+  .ide-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13.5px; }
+  .ide-brand .logo { width: 20px; height: 20px; border-radius: 6px; display: flex; align-items: center; justify-content: center; color: #fff; flex: 0 0 auto; }
+  .ide-title { font-size: 13.5px; font-weight: 600; }
+  .ide-top-spacer { flex: 1; }
+  .ws-path { font-family: Consolas, "Courier New", monospace; font-size: 11px; opacity: .72; padding: 3px 8px; border-radius: 6px; }
+  .engine-state { display: flex; align-items: center; gap: 6px; font-size: 12px; padding: 3px 10px; border-radius: 20px; }
+  .engine-state .dot { width: 7px; height: 7px; border-radius: 50%; background: #22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,.16); }
+  .btn-new { font-size: 12.5px; font-weight: 600; border: 0; border-radius: 7px; padding: 6px 14px; cursor: default; }
+  .ide-body { display: flex; flex: 1 1 auto; min-height: 0; }
+  .vsc { display: flex; flex: 1 1 auto; min-width: 0; min-height: 0; }
+  .vsc-activity { width: 44px; flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 14px; padding-top: 12px; }
+  .vsc-activity svg { opacity: .5; }
+  .vsc-activity svg.on { opacity: 1; }
+  .vsc-tree { width: 208px; flex: 0 0 auto; padding: 10px 8px; font-size: 12px; line-height: 1.85; overflow: hidden; }
+  .vsc-tree .t-label { font-size: 10.5px; letter-spacing: .8px; opacity: .55; padding: 2px 8px 6px; }
+  .t-row { display: flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 4px; white-space: nowrap; }
+  .t-row .tw { color: inherit; font-size: 12px; }
+  .t-row.sel { background: rgba(47,111,237,.12); color: var(--brand); font-weight: 600; }
+  .t-indent { display: inline-block; }
+  .t-folder { opacity: .75; display: inline-flex; }
+  .t-file { opacity: .85; display: inline-flex; }
+  .vsc-editor { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+  .vsc-tabs { display: flex; align-items: stretch; height: 34px; font-size: 12px; }
+  .vsc-tab { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-right: 1px solid transparent; }
+  .vsc-tab .close { opacity: .4; display: inline-flex; }
+  .vsc-code { flex: 1 1 auto; margin: 0; padding: 14px 18px; font-family: Consolas, "Courier New", monospace; font-size: 12.5px; line-height: 1.72; overflow: hidden; white-space: pre; }
+  .ln { user-select: none; display: inline-block; width: 34px; text-align: right; margin-right: 14px; opacity: .45; }
+  .tok-k { color: #c084fc; font-weight: 600; }
+  .tok-s { color: #22c55e; }
+  .tok-f { color: #38bdf8; }
+  .tok-c { color: #64748b; font-style: italic; }
+  .tok-p { color: #f59e0b; }
+  .vsc-status { height: 22px; display: flex; align-items: center; gap: 14px; padding: 0 12px; font-size: 10.5px; }
+  .vsc-status .st { display: inline-flex; align-items: center; gap: 4px; }
+
+  /* ===== 右侧对话面板 ===== */
+  .chat { width: 356px; flex: 0 0 auto; display: flex; flex-direction: column; border-left: 1px solid; }
+  .chat-idbar { display: flex; align-items: center; gap: 9px; padding: 10px 12px; }
+  .chat-idbar .avatar { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; color: #fff; flex: 0 0 auto; }
+  .chat-idbar .who { flex: 1 1 auto; min-width: 0; }
+  .chat-idbar .who .name { font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+  .chat-idbar .who .meta { font-size: 11px; opacity: .6; margin-top: 1px; }
+  .badge-main { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: 20px; letter-spacing: .3px; }
+  .chat-msgs { flex: 1 1 auto; overflow: hidden; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
+  .msg-user { align-self: flex-end; max-width: 86%; border-radius: 12px 12px 4px 12px; padding: 8px 12px; font-size: 12.5px; line-height: 1.6; }
+  .msg-ai { align-self: flex-start; max-width: 96%; border-radius: 12px 12px 12px 4px; padding: 9px 12px; font-size: 12.5px; line-height: 1.65; border: 1px solid; }
+  .thinking { align-self: flex-start; display: flex; align-items: center; gap: 7px; font-size: 11.5px; opacity: .68; padding: 5px 10px; border-radius: 8px; }
+  .thinking .spinner { width: 11px; height: 11px; border-radius: 50%; border: 2px solid; border-top-color: transparent; animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .code-block { margin: 8px 0 2px; border-radius: 8px; padding: 9px 11px; font-family: Consolas, "Courier New", monospace; font-size: 11.5px; line-height: 1.65; overflow: hidden; white-space: pre; }
+  .chat-input { padding: 10px 12px 12px; }
+  .chat-input .box { border-radius: 10px; border: 1px solid; padding: 9px 10px; }
+  .chat-input .box textarea { width: 100%; border: 0; outline: none; resize: none; font-family: inherit; font-size: 12.5px; line-height: 1.55; height: 44px; background: transparent; color: inherit; }
+  .chat-input .row { display: flex; align-items: center; gap: 8px; margin-top: 7px; }
+  .mode-btn { font-size: 11px; padding: 3px 9px; border-radius: 20px; border: 1px solid; }
+  .send-btn { margin-left: auto; width: 28px; height: 28px; border-radius: 8px; border: 0; display: flex; align-items: center; justify-content: center; color: #fff; cursor: default; }
+
+  /* ===== 变体 A：浅色壳 ===== */
+  .va { background: #fff; border: 1px solid var(--line); box-shadow: 0 12px 32px rgba(30,42,62,.08); }
+  .va .ide-top { background: #fff; border-bottom: 1px solid var(--line); }
+  .va .logo { background: var(--brand); }
+  .va .ws-path { background: #f2f5f9; color: var(--ink-2); }
+  .va .engine-state { background: #eef7f1; color: #1a7f45; }
+  .va .btn-new { background: var(--brand); color: #fff; }
+  .va .vsc { background: #fff; }
+  .va .vsc-activity { background: #f7f8fa; border-right: 1px solid var(--line); color: #5a6472; }
+  .va .vsc-tree { background: #fbfcfe; border-right: 1px solid var(--line); color: #3d4757; }
+  .va .vsc-tabs { background: #f7f8fa; border-bottom: 1px solid var(--line); color: #6b7482; }
+  .va .vsc-tab.act { background: #fff; color: var(--ink); border-top: 2px solid var(--brand); }
+  .va .vsc-code { background: #ffffff; color: #334155; }
+  .va .vsc-status { background: var(--brand); color: #fff; }
+  .va .chat { background: #fff; border-left-color: var(--line); }
+  .va .chat-idbar { border-bottom: 1px solid var(--line); background: #fbfcfe; }
+  .va .avatar { background: linear-gradient(135deg, #3b82f6, #6366f1); }
+  .va .badge-main { background: #e6effe; color: var(--brand); }
+  .va .msg-user { background: var(--brand); color: #fff; }
+  .va .msg-ai { background: #fff; border-color: var(--line); color: #2a3444; }
+  .va .thinking { background: #f2f5f9; color: #5a6472; }
+  .va .thinking .spinner { border-color: #8b94a3; }
+  .va .code-block { background: #f4f6fa; color: #33415c; }
+  .va .chat-input { background: #fff; }
+  .va .chat-input .box { border-color: #d8dfe9; background: #fbfcfe; }
+  .va .mode-btn { border-color: #d8dfe9; color: #5a6472; background: #fff; }
+  .va .send-btn { background: var(--brand); }
+
+  /* ===== 变体 B：整体深色（Cursor / Trae 风） ===== */
+  .vb { background: #1b1d23; border: 1px solid #2c2f38; box-shadow: 0 16px 40px rgba(0,0,0,.35); }
+  .vb .ide-top { background: #212329; border-bottom: 1px solid #2c2f38; color: #e6e8ee; }
+  .vb .logo { background: #4d7cfe; }
+  .vb .ws-path { background: #2a2d35; color: #9aa1b0; }
+  .vb .engine-state { background: #16301f; color: #4ade80; }
+  .vb .btn-new { background: #4d7cfe; color: #fff; }
+  .vb .vsc { background: #181a20; }
+  .vb .vsc-activity { background: #14161b; border-right: 1px solid #262931; color: #8b94a3; }
+  .vb .vsc-tree { background: #1a1c22; border-right: 1px solid #262931; color: #c3c8d2; }
+  .vb .t-row.sel { background: rgba(77,124,254,.22); color: #8ab0ff; }
+  .vb .vsc-tabs { background: #14161b; border-bottom: 1px solid #262931; color: #7d8595; }
+  .vb .vsc-tab.act { background: #1a1c22; color: #e6e8ee; border-top: 2px solid #4d7cfe; }
+  .vb .vsc-code { background: #15171d; color: #cbd5e1; }
+  .vb .vsc-status { background: #2b5fd9; color: #eef3ff; }
+  .vb .chat { background: #1b1d23; border-left-color: #2c2f38; }
+  .vb .chat-idbar { border-bottom: 1px solid #2c2f38; background: #1e2027; }
+  .vb .avatar { background: linear-gradient(135deg, #4d7cfe, #8b5cf6); }
+  .vb .badge-main { background: #1e3a8a; color: #93c5fd; }
+  .vb .msg-user { background: #2f5fd9; color: #f2f6ff; }
+  .vb .msg-ai { background: #23262e; border-color: #2f323b; color: #d7dbe4; }
+  .vb .thinking { background: #23262e; color: #9aa1b0; }
+  .vb .thinking .spinner { border-color: #7d8595; }
+  .vb .code-block { background: #101216; color: #a5b4cf; }
+  .vb .chat-input { background: #1b1d23; }
+  .vb .chat-input .box { border-color: #353944; background: #202229; }
+  .vb .chat-input .box textarea { color: #e6e8ee; }
+  .vb .mode-btn { border-color: #353944; color: #9aa1b0; background: #202229; }
+  .vb .send-btn { background: #4d7cfe; }
+
+  .foot { max-width: 1400px; margin: 10px auto 40px; padding: 0 32px; font-size: 12px; color: var(--ink-3); line-height: 1.8; }
+  .foot b { color: var(--ink-2); }
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <h1>GoGo IDE 工作台 · 高保真 UI 设计稿</h1>
+  <p class="sub">目标：左侧 openvscode-server（VSCode Web 文件树 + 编辑器），右侧 AI 对话面板（仅 deepseek-harness · 标识 main），整体对齐 Cursor / Trae。下方为两个变体，均基于真实 GoGo 布局与工作区结构绘制。</p>
+  <div class="assume">
+    <b>设计假设与推理：</b>
+    ① 保留 GoGo 全局壳（顶栏 + 侧栏），IDE 工作台作为 <code>#/ide</code> 页面渲染进内容区，随时可切回其它页面；
+    ② 左侧为 openvscode-server 嵌入区（真实实现为 <code>iframe</code>，挂载 <code>D:\Myproject\GoGo</code> 到容器 <code>/home/workspace</code>），文件树即工作区真实结构；
+    ③ 右侧对话面板固定 360px，会话固定复用 <code>agentId='main'</code>（deepseek-harness）；
+    ④ <b>签名元素</b>：面板顶部「引擎状态 · 智能体身份」复合条（绿点运行中 + 角色名 + main 徽标 + 工作区路径），以及可折叠的「思考中」块——AI 透明性贯穿两变体；
+    ⑤ 变体 A 贴合 GoGo 现有浅色视觉（编辑器深色形成对比）；变体 B 为 Cursor / Trae 式整体深色。
+  </div>
+</div>
+
+<design-canvas style="--canvas-bg:#eef0f4;">
+  <dc-section title="变体 A · 浅色壳 + 深色编辑器（贴合 GoGo 现有视觉）" subtitle="推荐作为默认：与平台风格一致，编辑器区深色形成聚焦对比">
+    <dc-artboard id="va" label="变体 A" width="1320" height="812">
+
+      <div class="ide va" style="width:1280px;height:760px;">
+
+        <!-- 顶栏 -->
+        <div class="ide-top">
+          <div class="ide-brand"><span class="logo"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg></span>GoGo</div>
+          <span style="opacity:.35;font-size:12px;">/</span>
+          <div class="ide-title">IDE 工作台</div>
+          <div class="ide-top-spacer"></div>
+          <div class="ws-path">D:\Myproject\GoGo</div>
+          <div class="engine-state"><span class="dot"></span>运行中</div>
+          <button class="btn-new">新对话</button>
+        </div>
+
+        <div class="ide-body">
+          <!-- 左：VSCode -->
+          <div class="vsc">
+            <div class="vsc-activity">
+              <svg class="on" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l6-4 12 9-6 4L3 7z"/><path d="M9 3v14M15 12l6 4"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7l4-3 12 9-4 3L4 7z"/><path d="M8 4v14M16 13l4 3"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 21h10"/></svg>
+            </div>
+
+            <div class="vsc-tree">
+              <div class="t-label">资源管理器</div>
+              <div class="t-row"><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">gogo-app</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">.trae</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">backend</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">app/gateway</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">packages/harness</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">docs</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">evopanel</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">src</span></div>
+              <div class="t-row"><span class="t-indent" style="width:42px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">react</span></div>
+              <div class="t-row"><span class="t-indent" style="width:56px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">ide</span></div>
+              <div class="t-row sel"><span class="t-indent" style="width:70px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">IdeApp.tsx</span></div>
+              <div class="t-row"><span class="t-indent" style="width:56px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">ide.css</span></div>
+              <div class="t-row"><span class="t-indent" style="width:42px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">pages/ide.js</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">scripts/ide-vscode.ps1</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">plugins/dsh</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">skills</span></div>
+            </div>
+
+            <div class="vsc-editor">
+              <div class="vsc-tabs">
+                <div class="vsc-tab act"><span class="t-file" style="opacity:.8;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span>IdeApp.tsx<span class="close"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+                <div class="vsc-tab"><span class="t-file" style="opacity:.8;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span>ide-vscode.ps1<span class="close"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+              </div>
+              <div class="vsc-code"><span class="ln">24</span><span class="tok-k">import</span> { useEffect, useRef, useState } <span class="tok-k">from</span> <span class="tok-s">'react'</span>
+<span class="ln">25</span><span class="tok-k">import</span> { api, wsClient } <span class="tok-k">from</span> <span class="tok-s">'../../lib/tauri-api.js'</span>
+<span class="ln">26</span>
+<span class="ln">27</span><span class="tok-k">export default function</span> <span class="tok-f">IdeApp</span>() {
+<span class="ln">28</span>  <span class="tok-k">const</span> [sessionKey, setSessionKey] = <span class="tok-f">useState</span><span class="tok-p">&lt;string&gt;</span>(<span class="tok-s">''</span>)
+<span class="ln">29</span>  <span class="tok-k">const</span> [messages, setMessages] = <span class="tok-f">useState</span><span class="tok-p">&lt;</span>Msg<span class="tok-p">&gt;</span>([])
+<span class="ln">30</span>  <span class="tok-k">const</span> [engineUp, setEngineUp] = <span class="tok-f">useState</span>(<span class="tok-p">false</span>)
+<span class="ln">31</span>
+<span class="ln">32</span>  <span class="tok-c">// 探测 openvscode-server 引擎（:18080）</span>
+<span class="ln">33</span>  useEffect(<span class="tok-p">() =&gt;</span> {
+<span class="ln">34</span>    <span class="tok-f">fetch</span>(<span class="tok-s">'http://127.0.0.1:18080/'</span>)
+<span class="ln">35</span>      .then(<span class="tok-p">() =&gt;</span> setEngineUp(<span class="tok-p">true</span>))
+<span class="ln">36</span>      .catch(<span class="tok-p">() =&gt;</span> setEngineUp(<span class="tok-p">false</span>))
+<span class="ln">37</span>  }, [])
+<span class="ln">38</span>
+<span class="ln">39</span>  <span class="tok-k">async function</span> <span class="tok-f">ensureSession</span>() {
+<span class="ln">40</span>    <span class="tok-k">const</span> row = <span class="tok-k">await</span> api.chatSessionsCreate(<span class="tok-s">'main'</span>, {
+<span class="ln">41</span>      title: <span class="tok-s">'IDE 工作台'</span>,
+<span class="ln">42</span>      context: { local_workspace_root: <span class="tok-s">'D:\Myproject\GoGo'</span> },
+<span class="ln">43</span>    })
+<span class="ln">44</span>    <span class="tok-f">setSessionKey</span>(row.sessionKey)
+<span class="ln">45</span>  }
+<span class="ln">46</span>
+<span class="ln">47</span>  <span class="tok-k">return</span> (
+<span class="ln">48</span>    <span class="tok-p">&lt;</span>div className<span class="tok-p">=</span><span class="tok-s">"ide-workbench"</span><span class="tok-p">&gt;</span> … <span class="tok-p">&lt;/</span>div<span class="tok-p">&gt;</span>
+<span class="ln">49</span>  )
+<span class="ln">50</span>}</div>
+              <div class="vsc-status">
+                <span class="st"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l-4 4 4 4M15 8l4 4-4 4"/></svg>main</span>
+                <span class="st">0 错误</span>
+                <span class="st">2 警告</span>
+                <span style="flex:1"></span>
+                <span class="st">Ln 24, Col 8</span>
+                <span class="st">UTF-8</span>
+                <span class="st">:18080</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右：对话面板 -->
+          <div class="chat">
+            <div class="chat-idbar">
+              <div class="avatar"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="11" rx="2.5"/><path d="M9 11.2h6M9 14h3.6"/><circle cx="16.6" cy="11.2" r=".6" fill="currentColor" stroke="none"/></svg></div>
+              <div class="who">
+                <div class="name">deepseek-harness<span class="badge-main">main</span></div>
+                <div class="meta">默认主智能体 · 26 工具 · 4 技能</div>
+              </div>
+              <div class="engine-state"><span class="dot"></span>运行中</div>
+            </div>
+
+            <div class="chat-msgs">
+              <div class="msg-user">gateway 起不来，8012 端口好像被占了，帮我查一下</div>
+              <div class="thinking"><span class="spinner"></span>正在排查端口占用与 gateway 启动日志…</div>
+              <div class="msg-ai">
+                查到了：占用 8012 的是旧版 gogo-gateway 进程（PID 9123）。已帮你释放端口并重启 gateway，现在正常监听 8012 了。
+                <div class="code-block">netstat -ano | findstr :8012
+taskkill /PID 9123 /F</div>
+              </div>
+              <div class="msg-ai" style="opacity:.85;">需要的话我可以继续看 gateway 日志里的其他告警。</div>
+            </div>
+
+            <div class="chat-input">
+              <div class="box">
+                <textarea placeholder="向 deepseek-harness 描述你想改的代码…"></textarea>
+                <div class="row">
+                  <span class="mode-btn">Auto 模式</span>
+                  <span style="font-size:11px;opacity:.55;">工作区已绑定：D:\Myproject\GoGo</span>
+                  <span class="send-btn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </dc-artboard>
+  </dc-section>
+
+  <dc-section title="变体 B · 整体深色（Cursor / Trae 风）" subtitle="适合偏好沉浸式 AI IDE 的用户，编辑器与对话同色域">
+    <dc-artboard id="vb" label="变体 B" width="1320" height="812">
+
+      <div class="ide vb" style="width:1280px;height:760px;">
+
+        <!-- 顶栏 -->
+        <div class="ide-top">
+          <div class="ide-brand"><span class="logo"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M12 5v14"/></svg></span>GoGo</div>
+          <span style="opacity:.4;font-size:12px;">/</span>
+          <div class="ide-title">IDE 工作台</div>
+          <div class="ide-top-spacer"></div>
+          <div class="ws-path">D:\Myproject\GoGo</div>
+          <div class="engine-state"><span class="dot"></span>运行中</div>
+          <button class="btn-new">新对话</button>
+        </div>
+
+        <div class="ide-body">
+          <!-- 左：VSCode -->
+          <div class="vsc">
+            <div class="vsc-activity">
+              <svg class="on" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7l6-4 12 9-6 4L3 7z"/><path d="M9 3v14M15 12l6 4"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 7l4-3 12 9-4 3L4 7z"/><path d="M8 4v14M16 13l4 3"/></svg>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M7 21h10"/></svg>
+            </div>
+
+            <div class="vsc-tree">
+              <div class="t-label">资源管理器</div>
+              <div class="t-row"><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">gogo-app</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">.trae</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">backend</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">app/gateway</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">packages/harness</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">docs</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">evopanel</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">src</span></div>
+              <div class="t-row"><span class="t-indent" style="width:42px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">react</span></div>
+              <div class="t-row"><span class="t-indent" style="width:56px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">ide</span></div>
+              <div class="t-row sel"><span class="t-indent" style="width:70px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">IdeApp.tsx</span></div>
+              <div class="t-row"><span class="t-indent" style="width:56px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">ide.css</span></div>
+              <div class="t-row"><span class="t-indent" style="width:42px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">pages/ide.js</span></div>
+              <div class="t-row"><span class="t-indent" style="width:28px;"></span><span class="t-file"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span><span class="tw">scripts/ide-vscode.ps1</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">plugins/dsh</span></div>
+              <div class="t-row"><span class="t-indent" style="width:14px;"></span><span class="t-folder"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"/></svg></span><span class="tw">skills</span></div>
+            </div>
+
+            <div class="vsc-editor">
+              <div class="vsc-tabs">
+                <div class="vsc-tab act"><span class="t-file" style="opacity:.8;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span>IdeApp.tsx<span class="close"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+                <div class="vsc-tab"><span class="t-file" style="opacity:.8;"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8l-5-5z"/><path d="M14 3v5h5"/></svg></span>ide-vscode.ps1<span class="close"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg></span></div>
+              </div>
+              <div class="vsc-code"><span class="ln">24</span><span class="tok-k">import</span> { useEffect, useRef, useState } <span class="tok-k">from</span> <span class="tok-s">'react'</span>
+<span class="ln">25</span><span class="tok-k">import</span> { api, wsClient } <span class="tok-k">from</span> <span class="tok-s">'../../lib/tauri-api.js'</span>
+<span class="ln">26</span>
+<span class="ln">27</span><span class="tok-k">export default function</span> <span class="tok-f">IdeApp</span>() {
+<span class="ln">28</span>  <span class="tok-k">const</span> [sessionKey, setSessionKey] = <span class="tok-f">useState</span><span class="tok-p">&lt;string&gt;</span>(<span class="tok-s">''</span>)
+<span class="ln">29</span>  <span class="tok-k">const</span> [messages, setMessages] = <span class="tok-f">useState</span><span class="tok-p">&lt;</span>Msg<span class="tok-p">&gt;</span>([])
+<span class="ln">30</span>  <span class="tok-k">const</span> [engineUp, setEngineUp] = <span class="tok-f">useState</span>(<span class="tok-p">false</span>)
+<span class="ln">31</span>
+<span class="ln">32</span>  <span class="tok-c">// 探测 openvscode-server 引擎（:18080）</span>
+<span class="ln">33</span>  useEffect(<span class="tok-p">() =&gt;</span> {
+<span class="ln">34</span>    <span class="tok-f">fetch</span>(<span class="tok-s">'http://127.0.0.1:18080/'</span>)
+<span class="ln">35</span>      .then(<span class="tok-p">() =&gt;</span> setEngineUp(<span class="tok-p">true</span>))
+<span class="ln">36</span>      .catch(<span class="tok-p">() =&gt;</span> setEngineUp(<span class="tok-p">false</span>))
+<span class="ln">37</span>  }, [])
+<span class="ln">38</span>
+<span class="ln">39</span>  <span class="tok-k">async function</span> <span class="tok-f">ensureSession</span>() {
+<span class="ln">40</span>    <span class="tok-k">const</span> row = <span class="tok-k">await</span> api.chatSessionsCreate(<span class="tok-s">'main'</span>, {
+<span class="ln">41</span>      title: <span class="tok-s">'IDE 工作台'</span>,
+<span class="ln">42</span>      context: { local_workspace_root: <span class="tok-s">'D:\Myproject\GoGo'</span> },
+<span class="ln">43</span>    })
+<span class="ln">44</span>    <span class="tok-f">setSessionKey</span>(row.sessionKey)
+<span class="ln">45</span>  }
+<span class="ln">46</span>
+<span class="ln">47</span>  <span class="tok-k">return</span> (
+<span class="ln">48</span>    <span class="tok-p">&lt;</span>div className<span class="tok-p">=</span><span class="tok-s">"ide-workbench"</span><span class="tok-p">&gt;</span> … <span class="tok-p">&lt;/</span>div<span class="tok-p">&gt;</span>
+<span class="ln">49</span>  )
+<span class="ln">50</span>}</div>
+              <div class="vsc-status">
+                <span class="st"><svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l-4 4 4 4M15 8l4 4-4 4"/></svg>main</span>
+                <span class="st">0 错误</span>
+                <span class="st">2 警告</span>
+                <span style="flex:1"></span>
+                <span class="st">Ln 24, Col 8</span>
+                <span class="st">UTF-8</span>
+                <span class="st">:18080</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右：对话面板 -->
+          <div class="chat">
+            <div class="chat-idbar">
+              <div class="avatar"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="7" width="16" height="11" rx="2.5"/><path d="M9 11.2h6M9 14h3.6"/><circle cx="16.6" cy="11.2" r=".6" fill="currentColor" stroke="none"/></svg></div>
+              <div class="who">
+                <div class="name">deepseek-harness<span class="badge-main">main</span></div>
+                <div class="meta">默认主智能体 · 26 工具 · 4 技能</div>
+              </div>
+              <div class="engine-state"><span class="dot"></span>运行中</div>
+            </div>
+
+            <div class="chat-msgs">
+              <div class="msg-user">gateway 起不来，8012 端口好像被占了，帮我查一下</div>
+              <div class="thinking"><span class="spinner"></span>正在排查端口占用与 gateway 启动日志…</div>
+              <div class="msg-ai">
+                查到了：占用 8012 的是旧版 gogo-gateway 进程（PID 9123）。已帮你释放端口并重启 gateway，现在正常监听 8012 了。
+                <div class="code-block">netstat -ano | findstr :8012
+taskkill /PID 9123 /F</div>
+              </div>
+              <div class="msg-ai" style="opacity:.85;">需要的话我可以继续看 gateway 日志里的其他告警。</div>
+            </div>
+
+            <div class="chat-input">
+              <div class="box">
+                <textarea placeholder="向 deepseek-harness 描述你想改的代码…"></textarea>
+                <div class="row">
+                  <span class="mode-btn">Auto 模式</span>
+                  <span style="font-size:11px;opacity:.55;">工作区已绑定：D:\Myproject\GoGo</span>
+                  <span class="send-btn"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </dc-artboard>
+  </dc-section>
+</design-canvas>
+
+<div class="foot">
+  <b>设计稿说明：</b>本页为静态高保真设计稿（非可交互原型），两变体共用同一信息架构。左侧即 openvscode-server 嵌入区（真实实现为 iframe 加载 <code>http://127.0.0.1:18080</code>）；右侧对话面板为本方案新建组件，会话固定对接 deepseek-harness（<code>main</code>）。变体 A 推荐为默认（与 GoGo 现有浅色平台视觉一致），变体 B 供沉浸式偏好者选择；也可将右侧面板宽度改为可拖拽（首版默认 360px 固定）。交互细节（流式光标、思考折叠、新对话、引擎未启动占位态）在实现阶段落地。
+</div>
+
+</body>
+</html>
